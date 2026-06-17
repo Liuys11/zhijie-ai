@@ -81,7 +81,11 @@ export async function supabaseRest<T>(
   }
 
   if (response.status === 204) return null as T;
-  return (await response.json()) as T;
+
+  const responseText = await response.text();
+  if (!responseText.trim()) return null as T;
+
+  return JSON.parse(responseText) as T;
 }
 
 export async function requireUser(request: NextRequest): Promise<AuthResult> {
