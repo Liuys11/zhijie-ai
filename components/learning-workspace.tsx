@@ -1,18 +1,35 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatPanel } from "./learning-workspace/chat-panel";
-import { initialMessages, initialProjects, learningModes, suggestionPrompts } from "./learning-workspace/data";
+import { initialMessages, learningModes, suggestionPrompts } from "./learning-workspace/data";
 import { InsightPanel } from "./learning-workspace/insight-panel";
 import { NewProjectModal } from "./learning-workspace/new-project-modal";
 import type { Message, Project, Resource, WorkspaceSection } from "./learning-workspace/types";
 import { formatFileSize, nowLabel } from "./learning-workspace/utils";
 import { WorkspaceHeader } from "./learning-workspace/workspace-header";
 import { WorkspaceSidebar } from "./learning-workspace/workspace-sidebar";
+import type { AuthSession } from "@/lib/supabase-browser";
 
-export function LearningWorkspace() {
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
-  const [activeProjectId, setActiveProjectId] = useState("ml");
+type LearningWorkspaceProps = {
+  session: AuthSession;
+  onSignOut: () => void;
+};
+
+type ApiProjectsResponse = {
+  projects?: Project[];
+  error?: string;
+};
+
+type ApiMessagesResponse = {
+  conversationId?: string;
+  messages?: Message[];
+  error?: string;
+};
+
+export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps) {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState("");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [resources, setResources] = useState<Resource[]>([
     { id: "r1", name: "软件设计竞赛需求分析.pdf", type: "PDF", size: "2.4 MB" },
@@ -27,6 +44,8 @@ export function LearningWorkspace() {
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("学习对话");
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -35,6 +54,65 @@ export function LearningWorkspace() {
     () => projects.find((project) => project.id === activeProjectId) || projects[0],
     [activeProjectId, projects]
   );
+
+  const authHeaders = useMemo(
+    () => ({
+      Authorization: `Bearer ${session.access_token}`
+    }),
+    [session.access_token]
+  );
+
+  const loadMessages = useCallback(async (project: Project) => {
+    const response = await fetch(`/api/projects/${project.id}/messages`, {
+      headers: authHeaders
+    });
+    const data = (await response.json()) as ApiMessagesResponse;
+    if (response.status === 401) {
+      onSignOut();
+      return;
+    }
+    if (!response.ok) throw new Error(data.error || "消息记录加载失败");
+
+    const conversationId = data.conversationId;
+    setProjects((current) => current.map((item) => (item.id === project.id ? { ...item, conversationId } : item)));
+    setMessages(data.messages?.length ? data.messages : initialMessages);
+  }, [authHeaders, onSignOut]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProjects = async () => {
+      setIsBootstrapping(true);
+      setWorkspaceError("");
+
+      try {
+        const response = await fetch("/api/projects", {
+          headers: authHeaders
+        });
+        const data = (await response.json()) as ApiProjectsResponse;
+        if (response.status === 401) {
+          onSignOut();
+          return;
+        }
+        if (!response.ok || !data.projects?.length) throw new Error(data.error || "项目加载失败");
+        if (cancelled) return;
+
+        setProjects(data.projects);
+        setActiveProjectId(data.projects[0].id);
+        await loadMessages(data.projects[0]);
+      } catch (error) {
+        if (!cancelled) setWorkspaceError(error instanceof Error ? error.message : "工作台加载失败，请稍后重试。");
+      } finally {
+        if (!cancelled) setIsBootstrapping(false);
+      }
+    };
+
+    void loadProjects();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authHeaders, loadMessages, onSignOut]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -73,6 +151,7 @@ export function LearningWorkspace() {
   const sendMessage = async (text?: string) => {
     const messageText = (text ?? input).trim();
     if (!messageText || isLoading) return;
+    if (!activeProject) return;
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -94,6 +173,8 @@ export function LearningWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: messageText,
+          projectId: activeProject.id,
+          conversationId: activeProject.conversationId,
           projectName: activeProject.name,
           mode,
           history,
@@ -103,10 +184,15 @@ export function LearningWorkspace() {
 
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
+        if (response.status === 401) onSignOut();
         throw new Error(data.error || "请求失败");
       }
 
       if (!response.body) throw new Error("浏览器不支持流式响应，请刷新后再试。");
+      const conversationId = response.headers.get("X-Zhijie-Conversation") || activeProject.conversationId;
+      if (conversationId) {
+        setProjects((current) => current.map((project) => (project.id === activeProject.id ? { ...project, conversationId } : project)));
+      }
 
       setMessages((current) => [
         ...current,
@@ -167,40 +253,81 @@ export function LearningWorkspace() {
     event.preventDefault();
     const name = newProjectName.trim();
     if (!name) return;
-    const project: Project = {
-      id: crypto.randomUUID(),
-      name,
-      subject: "待生成学习画像",
-      emoji: "✨",
-      progress: 0
-    };
-    setProjects((current) => [project, ...current]);
-    setActiveProjectId(project.id);
-    setMessages([
-      {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: `“${name}”项目已经创建。你可以直接提出第一个问题，也可以补充学习目标、时间安排或已有资料，我会据此生成项目制学习路线。`,
-        time: "刚刚"
+
+    const run = async () => {
+      try {
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: {
+            ...authHeaders,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ name })
+        });
+        const data = (await response.json()) as { project?: Project; error?: string };
+        if (!response.ok || !data.project) throw new Error(data.error || "项目创建失败");
+
+        setProjects((current) => [data.project as Project, ...current]);
+        setActiveProjectId(data.project.id);
+        setMessages([
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `“${name}”项目已经创建。你可以直接提出第一个问题，也可以补充学习目标、时间安排或已有资料，我会据此生成项目制学习路线。`,
+            time: "刚刚"
+          }
+        ]);
+        setNewProjectName("");
+        setNewProjectOpen(false);
+      } catch (error) {
+        setWorkspaceError(error instanceof Error ? error.message : "项目创建失败，请稍后重试。");
       }
-    ]);
-    setNewProjectName("");
-    setNewProjectOpen(false);
+    };
+
+    void run();
   };
 
   const changeProject = (projectId: string) => {
     setActiveProjectId(projectId);
     const project = projects.find((item) => item.id === projectId);
-    setMessages([
-      {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: `已进入“${project?.name || "学习项目"}”。这个项目拥有独立的对话、资料和学习进度，不会与其他课程或竞赛主题混在一起。`,
-        time: "刚刚"
-      }
-    ]);
+    if (project) {
+      setMessages([
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "正在加载这个项目的历史消息...",
+          time: "加载中"
+        }
+      ]);
+      void loadMessages(project).catch((error) => {
+        setWorkspaceError(error instanceof Error ? error.message : "消息记录加载失败。");
+      });
+    }
     setMobileNavOpen(false);
   };
+
+  if (isBootstrapping) {
+    return (
+      <main className="app-shell loading-shell">
+        <div className="workspace-empty-state">
+          <strong>正在进入知界 AI</strong>
+          <span>正在加载你的项目和历史消息...</span>
+        </div>
+      </main>
+    );
+  }
+
+  if (workspaceError || !activeProject) {
+    return (
+      <main className="app-shell loading-shell">
+        <div className="workspace-empty-state">
+          <strong>工作台暂时无法打开</strong>
+          <span>{workspaceError || "没有可用项目，请稍后重试。"}</span>
+          <button onClick={onSignOut}>退出登录</button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -214,6 +341,8 @@ export function LearningWorkspace() {
         onOpenNewProject={() => setNewProjectOpen(true)}
         onSelectProject={changeProject}
         onSelectSection={setActiveSection}
+        userEmail={session.user.email || "已登录用户"}
+        onSignOut={onSignOut}
       />
 
       <section className="workspace">

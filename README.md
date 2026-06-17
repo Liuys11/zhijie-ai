@@ -5,6 +5,8 @@
 ## 已实现
 
 - 多学习项目切换与新建项目
+- 邮箱密码注册/登录
+- 项目和聊天消息按账号持久化保存
 - 不上传资料也能直接开始 AI 对话
 - PDF、Office 文档、图片等资料入口与文件状态展示
 - 语音输入交互状态
@@ -14,7 +16,7 @@
 - 配置 OpenAI-compatible 大模型接口后调用流式 Chat Completions
 - 桌面端与移动端响应式界面
 
-> 当前上传文件只完成前端交互和资源列表，尚未把文件内容发送给模型。完整解析、RAG 知识库、语音转写和账号系统列入第二阶段。
+> 当前上传文件只完成前端交互和资源列表，尚未把文件内容发送给模型。完整解析、RAG 知识库和语音转写列入下一阶段。
 
 ## 本地运行
 
@@ -25,6 +27,13 @@ npm run dev
 ```
 
 浏览器打开 `http://localhost:3000`。
+
+本地登录和消息历史需要配置 Supabase：
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=你的 Supabase Project URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY=你的 Supabase anon public key
+```
 
 ## 接入真实模型
 
@@ -43,7 +52,7 @@ AI_BASE_URL=https://api.openai.com/v1
 AI_MODEL=gpt-4o-mini
 ```
 
-API Key 只能放在服务端环境变量中，不能写入浏览器代码或提交到 Git。不配置模型密钥时，网站会自动使用内置演示回复，保证用户无需上传文件、无需配置模型也能开始学习。
+API Key 只能放在服务端环境变量中，不能写入浏览器代码或提交到 Git。不配置模型密钥时，聊天接口会自动使用内置演示回复；但当前版本仍需要 Supabase 登录配置，保证项目和消息历史能保存。
 
 ## 目录
 

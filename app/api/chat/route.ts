@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAiTextStream, getAiProviderConfig } from "@/lib/ai-provider";
 import { buildDemoResponse } from "@/lib/demo-response";
+import { requireUser, supabaseRest } from "@/lib/supabase-rest";
 
 type ChatRole = "user" | "assistant";
 
@@ -16,10 +17,21 @@ type ChatResource = {
 
 type ParsedChatBody = {
   message: string;
+  projectId: string;
+  conversationId?: string;
   projectName: string;
   mode: string;
   history: ChatHistoryItem[];
   resources: ChatResource[];
+};
+
+type DbProject = {
+  id: string;
+};
+
+type DbConversation = {
+  id: string;
+  project_id: string;
 };
 
 const MAX_MESSAGE_LENGTH = 4000;
@@ -100,11 +112,15 @@ function parseChatBody(rawBody: unknown): ParsedChatBody | { error: string } {
 
   const body = rawBody as Record<string, unknown>;
   const message = asString(body.message);
+  const projectId = asString(body.projectId);
   if (!message) return { error: "消息不能为空" };
   if (message.length > MAX_MESSAGE_LENGTH) return { error: `消息不能超过 ${MAX_MESSAGE_LENGTH} 个字符` };
+  if (!projectId) return { error: "缺少项目 ID，请刷新页面后重试。" };
 
   return {
     message,
+    projectId,
+    conversationId: asString(body.conversationId) || undefined,
     projectName: asString(body.projectName) || "当前学习项目",
     mode: asString(body.mode) || "讲解模式",
     history: parseHistory(body.history),
@@ -142,8 +158,91 @@ function buildInstructions(projectName: string, mode: string, resources: ChatRes
 ${resourceText}`;
 }
 
+async function ensureProjectAccess(token: string, projectId: string) {
+  const projects = await supabaseRest<DbProject[]>(token, `projects?select=id&id=eq.${projectId}&limit=1`);
+  return projects[0] || null;
+}
+
+async function ensureConversation(token: string, userId: string, projectId: string, conversationId?: string) {
+  if (conversationId) {
+    const existing = await supabaseRest<DbConversation[]>(
+      token,
+      `conversations?select=id,project_id&id=eq.${conversationId}&project_id=eq.${projectId}&limit=1`
+    );
+    if (existing[0]) return existing[0];
+  }
+
+  const existing = await supabaseRest<DbConversation[]>(
+    token,
+    `conversations?select=id,project_id&project_id=eq.${projectId}&user_id=eq.${userId}&order=created_at.asc&limit=1`
+  );
+  if (existing[0]) return existing[0];
+
+  const created = await supabaseRest<DbConversation[]>(token, "conversations", {
+    method: "POST",
+    prefer: "return=representation",
+    body: {
+      project_id: projectId,
+      user_id: userId,
+      title: "默认对话",
+      mode: "讲解模式"
+    }
+  });
+
+  return created[0];
+}
+
+async function saveMessage(token: string, userId: string, conversationId: string, role: "user" | "assistant", content: string, model?: string) {
+  if (!content.trim()) return;
+
+  await supabaseRest<unknown[]>(token, "messages", {
+    method: "POST",
+    body: {
+      conversation_id: conversationId,
+      user_id: userId,
+      role,
+      content,
+      model,
+      metadata: {}
+    }
+  });
+}
+
+function persistAssistantStream(stream: ReadableStream<Uint8Array>, onComplete: (content: string) => Promise<void>) {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let fullText = "";
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = stream.getReader();
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          fullText += decoder.decode(value, { stream: true });
+          controller.enqueue(value);
+        }
+
+        fullText += decoder.decode();
+      } catch {
+        const fallbackText = "\n\n模型连接中断了，但你的问题已经保存。请稍后重试。";
+        fullText += fallbackText;
+        controller.enqueue(encoder.encode(fallbackText));
+      } finally {
+        await onComplete(fullText);
+        controller.close();
+      }
+    }
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireUser(request);
+    if ("status" in auth) return jsonError(auth.error, auth.status);
+
     if (!checkRateLimit(getClientKey(request))) {
       return jsonError("请求过于频繁，请稍后再试。", 429);
     }
@@ -151,10 +250,18 @@ export async function POST(request: NextRequest) {
     const parsedBody = parseChatBody(await request.json());
     if ("error" in parsedBody) return jsonError(parsedBody.error, 400);
 
+    const project = await ensureProjectAccess(auth.token, parsedBody.projectId);
+    if (!project) return jsonError("项目不存在或无权访问", 404);
+
+    const conversation = await ensureConversation(auth.token, auth.user.id, parsedBody.projectId, parsedBody.conversationId);
+    await saveMessage(auth.token, auth.user.id, conversation.id, "user", parsedBody.message);
+
     const aiConfig = getAiProviderConfig();
 
     if (!aiConfig) {
-      return textStreamFromString(buildDemoResponse(parsedBody.message, parsedBody.projectName), {
+      const demoText = buildDemoResponse(parsedBody.message, parsedBody.projectName);
+      await saveMessage(auth.token, auth.user.id, conversation.id, "assistant", demoText, "demo");
+      return textStreamFromString(demoText, {
         "X-Zhijie-Demo": "true"
       });
     }
@@ -184,10 +291,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return new Response(stream, {
+    const persistedStream = persistAssistantStream(stream, (content) =>
+      saveMessage(auth.token, auth.user.id, conversation.id, "assistant", content, aiConfig.model)
+    );
+
+    return new Response(persistedStream, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-store"
+        "Cache-Control": "no-store",
+        "X-Zhijie-Conversation": conversation.id
       }
     });
   } catch (error) {

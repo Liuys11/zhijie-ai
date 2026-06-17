@@ -1,5 +1,5 @@
-import { LearningWorkspace } from "@/components/learning-workspace";
+import { AuthGate } from "@/components/auth-gate";
 
 export default function Home() {
-  return <LearningWorkspace />;
+  return <AuthGate />;
 }

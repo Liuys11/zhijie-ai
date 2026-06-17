@@ -6,6 +6,7 @@ export type Project = {
   subject: string;
   emoji: string;
   progress: number;
+  conversationId?: string;
 };
 
 export type Message = {

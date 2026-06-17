@@ -4,7 +4,7 @@ import {
   LayoutDashboard,
   Menu,
   MessageCircle,
-  MoreHorizontal,
+  LogOut,
   Plus,
   X
 } from "lucide-react";
@@ -28,6 +28,8 @@ type WorkspaceSidebarProps = {
   onOpenNewProject: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectSection: (section: WorkspaceSection) => void;
+  userEmail: string;
+  onSignOut: () => void;
 };
 
 export function WorkspaceSidebar({
@@ -39,8 +41,12 @@ export function WorkspaceSidebar({
   onOpenMobileNav,
   onOpenNewProject,
   onSelectProject,
-  onSelectSection
+  onSelectSection,
+  userEmail,
+  onSignOut
 }: WorkspaceSidebarProps) {
+  const initial = userEmail.slice(0, 1).toUpperCase();
+
   return (
     <>
       <button className="mobile-menu-button" onClick={onOpenMobileNav} aria-label="打开导航">
@@ -98,12 +104,14 @@ export function WorkspaceSidebar({
         </div>
 
         <div className="sidebar-footer">
-          <div className="avatar">鲍</div>
+          <div className="avatar">{initial}</div>
           <div>
-            <strong>学习者</strong>
-            <span>今日已学习 42 分钟</span>
+            <strong>{userEmail}</strong>
+            <span>已登录 · 历史自动保存</span>
           </div>
-          <MoreHorizontal size={18} />
+          <button className="sidebar-logout" onClick={onSignOut} aria-label="退出登录">
+            <LogOut size={17} />
+          </button>
         </div>
       </aside>
 
