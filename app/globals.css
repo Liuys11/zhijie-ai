@@ -964,7 +964,7 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -974,7 +974,7 @@ textarea:focus-visible {
   border: 0;
   background: transparent;
   color: var(--primary);
-  font-size: 9px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -1011,7 +1011,7 @@ textarea:focus-visible {
 .progress-ring span {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .progress-stats {
@@ -1036,13 +1036,13 @@ textarea:focus-visible {
 }
 
 .progress-stats strong {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .progress-stats span {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .roadmap {
@@ -1077,7 +1077,7 @@ textarea:focus-visible {
   border-radius: 50%;
   background: white;
   color: #8b95a8;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .roadmap-item.done > span {
@@ -1100,13 +1100,13 @@ textarea:focus-visible {
 
 .roadmap-item strong {
   padding-top: 1px;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .roadmap-item small {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .resource-list {
@@ -1146,18 +1146,18 @@ textarea:focus-visible {
 }
 
 .resource-item strong {
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .resource-item span {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .empty-resource {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -1173,7 +1173,7 @@ textarea:focus-visible {
   border-radius: 9px;
   color: #69758a;
   background: #fafbfc;
-  font-size: 9px;
+  font-size: 12px;
   cursor: pointer;
 }
 

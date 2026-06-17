@@ -170,7 +170,10 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({
           message: messageText,
           projectId: activeProject.id,
