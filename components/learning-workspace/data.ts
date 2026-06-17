@@ -1,9 +1,9 @@
 import type { Message, Project } from "./types";
 
 export const initialProjects: Project[] = [
-  { id: "ml", name: "机器学习竞赛", subject: "计算机 × 数学", emoji: "🧠", progress: 62 },
-  { id: "power", name: "电力系统基础", subject: "电气工程", emoji: "⚡", progress: 38 },
-  { id: "english", name: "大学英语听力", subject: "语言学习", emoji: "🎧", progress: 71 }
+  { id: "ml", name: "知界 AI 竞赛作品", subject: "软件设计竞赛 × 智能学习", emoji: "🧠", progress: 72 },
+  { id: "power", name: "电力系统期末复习", subject: "电气工程课程", emoji: "⚡", progress: 38 },
+  { id: "english", name: "大学英语听力提升", subject: "语言学习项目", emoji: "🎧", progress: 71 }
 ];
 
 export const initialMessages: Message[] = [
@@ -11,7 +11,7 @@ export const initialMessages: Message[] = [
     id: "welcome",
     role: "assistant",
     content:
-      "你好，我是知界 AI。这个空间会围绕“机器学习竞赛”保存你的问题、资料、学习计划和掌握进度。你可以直接提问，也可以上传 PDF、图片或录音，不上传资料也完全可以开始学习。",
+      "你好，我是知界 AI。这个演示空间围绕大学生软件设计竞赛作品展开，会把项目目标、对话、资料、学习路线和掌握进度放在同一个学习项目里。当前已接入科大讯飞星火 Spark-X2-Flash；你可以直接提问，不上传资料也能开始学习。",
     time: "刚刚"
   }
 ];
@@ -19,7 +19,7 @@ export const initialMessages: Message[] = [
 export const learningModes = ["讲解模式", "苏格拉底提问", "考前复习", "竞赛辅导"];
 
 export const suggestionPrompts = [
-  "帮我制定这个项目的学习路线",
-  "先测试一下我目前的基础",
-  "解释监督学习和无监督学习的区别"
+  "用评委能听懂的话介绍知界 AI",
+  "帮我梳理这个作品的核心创新点",
+  "生成一段 1 分钟竞赛答辩开场白"
 ];

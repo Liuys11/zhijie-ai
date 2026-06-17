@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { BrainCircuit, Check, FileText, FolderOpen, Image as ImageIcon, Plus, Target, Upload } from "lucide-react";
+import { BrainCircuit, Check, Cpu, FileText, FolderOpen, Image as ImageIcon, Plus, Target, Upload } from "lucide-react";
 import type { FileInputRef, Project, Resource } from "./types";
 
 type ProgressStyle = CSSProperties & {
@@ -51,6 +51,24 @@ export function InsightPanel({ activeProject, resources, fileInputRef }: Insight
       <section className="insight-card">
         <div className="card-title">
           <span>
+            <Cpu size={17} /> 模型服务
+          </span>
+          <button>已接入</button>
+        </div>
+        <div className="resource-item">
+          <div className="resource-icon image">
+            <Cpu size={16} />
+          </div>
+          <div>
+            <strong>科大讯飞星火 Spark-X2-Flash</strong>
+            <span>服务端安全调用 · 流式输出</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="insight-card">
+        <div className="card-title">
+          <span>
             <BrainCircuit size={17} /> 当前学习路线
           </span>
           <button>调整</button>
@@ -61,28 +79,28 @@ export function InsightPanel({ activeProject, resources, fileInputRef }: Insight
               <Check size={13} />
             </span>
             <div>
-              <strong>理解竞赛任务</strong>
+              <strong>明确作品定位</strong>
               <small>已完成</small>
             </div>
           </div>
           <div className="roadmap-item current">
             <span>2</span>
             <div>
-              <strong>需求与功能设计</strong>
+              <strong>打磨演示叙事</strong>
               <small>正在学习</small>
             </div>
           </div>
           <div className="roadmap-item">
             <span>3</span>
             <div>
-              <strong>模型与知识库接入</strong>
+              <strong>展示 AI 学习闭环</strong>
               <small>待开始</small>
             </div>
           </div>
           <div className="roadmap-item">
             <span>4</span>
             <div>
-              <strong>测试与作品完善</strong>
+              <strong>答辩问答准备</strong>
               <small>待开始</small>
             </div>
           </div>

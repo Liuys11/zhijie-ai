@@ -15,8 +15,8 @@ export function LearningWorkspace() {
   const [activeProjectId, setActiveProjectId] = useState("ml");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [resources, setResources] = useState<Resource[]>([
-    { id: "r1", name: "竞赛任务说明.pdf", type: "PDF", size: "2.4 MB" },
-    { id: "r2", name: "课程知识点整理.png", type: "图片", size: "860 KB" }
+    { id: "r1", name: "软件设计竞赛需求分析.pdf", type: "PDF", size: "2.4 MB" },
+    { id: "r2", name: "知界AI功能结构图.png", type: "图片", size: "860 KB" }
   ]);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState(learningModes[0]);
@@ -166,7 +166,7 @@ export function LearningWorkspace() {
       {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `“${name}”项目已经创建。你可以直接提出第一个问题，也可以补充学习目标、时间安排或已有资料，我会据此生成学习路线。`,
+        content: `“${name}”项目已经创建。你可以直接提出第一个问题，也可以补充学习目标、时间安排或已有资料，我会据此生成项目制学习路线。`,
         time: "刚刚"
       }
     ]);
@@ -181,7 +181,7 @@ export function LearningWorkspace() {
       {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `已进入“${project?.name || "学习项目"}”。这个项目拥有独立的对话、资料和学习进度，不会与其他课程混在一起。`,
+        content: `已进入“${project?.name || "学习项目"}”。这个项目拥有独立的对话、资料和学习进度，不会与其他课程或竞赛主题混在一起。`,
         time: "刚刚"
       }
     ]);

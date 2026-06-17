@@ -66,11 +66,11 @@ export function ChatPanel({
             <Lightbulb size={22} />
           </div>
           <div>
-            <span>今天建议从这里开始</span>
-            <strong>完善竞赛需求分析，并建立第一版知识结构</strong>
-            <p>预计 25 分钟 · 完成后会更新项目掌握度</p>
+            <span>竞赛演示建议从这里开始</span>
+            <strong>梳理作品定位、核心创新与答辩讲述路径</strong>
+            <p>预计 15 分钟 · 完成后可直接用于路演说明</p>
           </div>
-          <button onClick={() => onSendMessage("带我完成今天的学习任务")}>开始</button>
+          <button onClick={() => onSendMessage("帮我准备知界 AI 的竞赛演示讲解")}>开始</button>
         </div>
 
         {messages.map((message) => (
@@ -132,7 +132,7 @@ export function ChatPanel({
               onSendMessage();
             }
           }}
-          placeholder="直接提问，或上传资料后结合资料学习……"
+          placeholder="直接提问，例如：帮我准备竞赛答辩、梳理创新点、生成演示讲解……"
           rows={3}
         />
         <div className="composer-toolbar">
