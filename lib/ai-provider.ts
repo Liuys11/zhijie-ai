@@ -12,6 +12,9 @@ export type AiProviderConfig = {
 type ChatCompletionChunk = {
   code?: number;
   message?: string;
+  error?: {
+    message?: string;
+  };
   choices?: Array<{
     delta?: {
       content?: string;
@@ -22,6 +25,7 @@ type ChatCompletionChunk = {
 
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-4o-mini";
+const STREAM_ERROR_TEXT = "\n\n抱歉，模型连接中途不稳定，刚才的回复可能没有完整生成。你可以稍后重试，或换一个更短的问题继续。";
 
 export function getAiProviderConfig(): AiProviderConfig | null {
   const apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY;
@@ -140,16 +144,24 @@ export async function createAiTextStream(messages: AiChatMessage[], config: AiPr
           for (const line of lines) {
             const chunk = parseDataLine(line);
             if (chunk?.code && chunk.code !== 0) {
-              throw new Error(chunk.message || `AI provider error ${chunk.code}`);
+              controller.enqueue(encoder.encode(STREAM_ERROR_TEXT));
+              controller.close();
+              return;
             }
-            const content = chunk?.choices?.[0]?.delta?.content;
+            if (chunk?.error?.message) {
+              controller.enqueue(encoder.encode(STREAM_ERROR_TEXT));
+              controller.close();
+              return;
+            }
+            const content = chunk?.choices?.[0]?.delta?.content || chunk?.choices?.[0]?.delta?.reasoning_content;
             if (content) controller.enqueue(encoder.encode(content));
           }
         }
 
         controller.close();
-      } catch (error) {
-        controller.error(error);
+      } catch {
+        controller.enqueue(encoder.encode(STREAM_ERROR_TEXT));
+        controller.close();
       }
     }
   });

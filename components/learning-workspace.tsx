@@ -56,6 +56,20 @@ export function LearningWorkspace() {
     event.target.value = "";
   };
 
+  const getFriendlyErrorMessage = (error: unknown) => {
+    const message = error instanceof Error ? error.message : "";
+
+    if (/Failed to fetch|Load failed|NetworkError|fetch/i.test(message)) {
+      return "网络连接不稳定，消息没有成功发送。请检查网络后再试一次。";
+    }
+
+    if (/stream|reader|body/i.test(message)) {
+      return "模型回复过程中连接中断了，请稍后重试，或把问题拆短一点再发送。";
+    }
+
+    return message || "模型服务暂时不可用，请稍后再试。";
+  };
+
   const sendMessage = async (text?: string) => {
     const messageText = (text ?? input).trim();
     if (!messageText || isLoading) return;
@@ -135,7 +149,7 @@ export function LearningWorkspace() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: error instanceof Error ? error.message : "网络异常，请稍后重试。",
+          content: getFriendlyErrorMessage(error),
           time: "发送失败"
         }
       ]);

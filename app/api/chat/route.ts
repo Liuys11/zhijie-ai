@@ -27,6 +27,8 @@ const MAX_HISTORY_ITEMS = 8;
 const MAX_RESOURCES = 12;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 20;
+const MODEL_UNAVAILABLE_MESSAGE =
+  "模型服务暂时不可用，我先给出一个演示模式回复。你仍然可以继续提问，稍后系统会自动恢复真实模型调用。\n\n";
 
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 
@@ -157,20 +159,30 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const stream = await createAiTextStream(
-      [
-        {
-          role: "system",
-          content: buildInstructions(parsedBody.projectName, parsedBody.mode, parsedBody.resources)
-        },
-        ...parsedBody.history.map((item) => ({
-          role: item.role,
-          content: item.content
-        })),
-        { role: "user" as const, content: parsedBody.message }
-      ],
-      aiConfig
-    );
+    const messages = [
+      {
+        role: "system" as const,
+        content: buildInstructions(parsedBody.projectName, parsedBody.mode, parsedBody.resources)
+      },
+      ...parsedBody.history.map((item) => ({
+        role: item.role,
+        content: item.content
+      })),
+      { role: "user" as const, content: parsedBody.message }
+    ];
+
+    const stream = await createAiTextStream(messages, aiConfig).catch((error) => {
+      console.error(error);
+      return textStreamFromString(MODEL_UNAVAILABLE_MESSAGE + buildDemoResponse(parsedBody.message, parsedBody.projectName), {
+        "X-Zhijie-Fallback": "true"
+      }).body;
+    });
+
+    if (!stream) {
+      return textStreamFromString(MODEL_UNAVAILABLE_MESSAGE + buildDemoResponse(parsedBody.message, parsedBody.projectName), {
+        "X-Zhijie-Fallback": "true"
+      });
+    }
 
     return new Response(stream, {
       headers: {
