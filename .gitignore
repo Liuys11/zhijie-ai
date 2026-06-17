@@ -1,0 +1,10 @@
+node_modules
+.next
+.pnpm-store
+out
+.env
+.env.local
+*.log
+pnpm-lock.yaml
+pnpm-workspace.yaml
+.DS_Store
