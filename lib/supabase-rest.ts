@@ -110,6 +110,42 @@ export async function deleteStorageObject(token: string, bucket: string, path: s
   }
 }
 
+export async function uploadStorageObject(token: string, bucket: string, path: string, body: Uint8Array, contentType: string) {
+  const config = getSupabaseConfig();
+  if (!config) throw new Error("Supabase is not configured");
+  if (!path) throw new Error("Storage path is empty");
+  const uploadBody = body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer;
+
+  const response = await fetch(`${config.url}/storage/v1/object/${bucket}/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": contentType,
+      "x-upsert": "true"
+    },
+    body: new Blob([uploadBody], { type: contentType }),
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Storage upload failed with ${response.status}`);
+  }
+}
+
+export function getStoragePublicUrl(bucket: string, path: string) {
+  const config = getSupabaseConfig();
+  if (!config) throw new Error("Supabase is not configured");
+
+  const normalizedPath = path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${config.url}/storage/v1/object/public/${bucket}/${normalizedPath}`;
+}
+
 export async function requireUser(request: NextRequest): Promise<AuthResult> {
   const token = getBearerToken(request);
   if (!token) return { error: "未登录或登录已过期", status: 401 as const };

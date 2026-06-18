@@ -52,6 +52,7 @@ export type MessagePart =
   | {
       type: "image";
       url?: string;
+      storagePath?: string;
       prompt: string;
       status: "generating" | "completed" | "failed";
       error?: string;

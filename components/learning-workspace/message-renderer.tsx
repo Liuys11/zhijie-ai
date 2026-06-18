@@ -258,13 +258,29 @@ function ChartPart({ option, title }: { option: ChartOption; title?: string }) {
 
 function MediaPlaceholder({ part, onSendMessage }: { part: MessagePart; onSendMessage?: (text: string) => void }) {
   if (part.type === "image") {
+    const downloadImage = () => {
+      if (!part.url) return;
+      const link = document.createElement("a");
+      link.href = part.url;
+      link.download = "zhijie-generated-image.png";
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.click();
+    };
+
     return (
       <div className="generated-block">
         <div className="generated-block-header">
           <strong>教学图片</strong>
           <span>
             <button type="button" onClick={() => onSendMessage?.(`重新生成图片：${part.prompt}`)}>
-              <RefreshCw size={14} /> 重新生成
+              <RefreshCw size={14} /> 重试
+            </button>
+            <button type="button" onClick={() => onSendMessage?.(`请在这张图片描述基础上继续修改：${part.prompt}`)}>
+              继续修改
+            </button>
+            <button type="button" onClick={downloadImage} disabled={!part.url}>
+              <Download size={14} /> 下载
             </button>
           </span>
         </div>

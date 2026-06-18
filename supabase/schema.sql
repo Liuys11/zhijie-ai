@@ -109,6 +109,26 @@ create table if not exists public.knowledge_edges (
   unique(source_node_id, target_node_id, relation)
 );
 
+create table if not exists public.generated_assets (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  message_id uuid references public.messages(id) on delete set null,
+  asset_type text not null check (asset_type in ('image', 'video', 'audio', 'file')),
+  prompt text not null,
+  storage_bucket text not null,
+  storage_path text not null,
+  public_url text,
+  mime_type text,
+  provider text,
+  model text,
+  status text not null default 'completed' check (status in ('queued', 'generating', 'completed', 'failed')),
+  error_message text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists projects_user_id_idx on public.projects(user_id);
 create index if not exists conversations_project_id_idx on public.conversations(project_id);
 create index if not exists messages_conversation_id_idx on public.messages(conversation_id, created_at);
@@ -116,6 +136,8 @@ create index if not exists documents_project_id_idx on public.documents(project_
 create index if not exists learning_steps_project_id_idx on public.learning_steps(project_id, sort_order);
 create index if not exists chunks_project_id_idx on public.document_chunks(project_id);
 create index if not exists knowledge_nodes_project_id_idx on public.knowledge_nodes(project_id);
+create index if not exists generated_assets_project_id_idx on public.generated_assets(project_id, created_at desc);
+create index if not exists generated_assets_user_id_idx on public.generated_assets(user_id, created_at desc);
 
 alter table public.projects enable row level security;
 alter table public.conversations enable row level security;
@@ -126,6 +148,7 @@ alter table public.learning_steps enable row level security;
 alter table public.document_chunks enable row level security;
 alter table public.knowledge_nodes enable row level security;
 alter table public.knowledge_edges enable row level security;
+alter table public.generated_assets enable row level security;
 
 create policy "users manage own projects" on public.projects
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -144,6 +167,8 @@ create policy "users manage own chunks" on public.document_chunks
 create policy "users manage own knowledge nodes" on public.knowledge_nodes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "users manage own knowledge edges" on public.knowledge_edges
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "users manage own generated assets" on public.generated_assets
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create or replace function public.match_document_chunks(

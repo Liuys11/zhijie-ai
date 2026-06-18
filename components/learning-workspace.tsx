@@ -44,6 +44,12 @@ type ApiProjectDetailsResponse = {
   error?: string;
 };
 
+type ApiImageGenerationResponse = {
+  conversationId?: string;
+  message?: Message;
+  error?: string;
+};
+
 const allowedAvatarTypes = ["image/jpeg", "image/png", "image/webp"];
 const maxAvatarSize = 5 * 1024 * 1024;
 const defaultProjectStats: ProjectStats = {
@@ -83,6 +89,18 @@ function updateWorkspaceRoute(projectId: string, section: WorkspaceSection, repl
   if (window.location.pathname === nextPath) return;
   const method = replace ? "replaceState" : "pushState";
   window.history[method]({}, "", nextPath);
+}
+
+function isImageGenerationRequest(message: string) {
+  return /(生成|画|绘制|做|创建).*(图片|插图|配图|封面|场景图|概念图|示意图|海报)|重新生成图片|继续修改.*图片/.test(message);
+}
+
+function cleanImagePrompt(message: string) {
+  return message
+    .replace(/^重新生成图片[:：]?/, "")
+    .replace(/^生成一张教学插图[:：]?/, "")
+    .replace(/^请在这张图片描述基础上继续修改[:：]?/, "")
+    .trim() || message.trim();
 }
 
 function profileFromEmail(email?: string): UserProfile {
@@ -431,6 +449,37 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     const assistantMessageId = crypto.randomUUID();
 
     try {
+      if (isImageGenerationRequest(messageText)) {
+        const response = await fetch("/api/generate/image", {
+          method: "POST",
+          headers: {
+            ...authHeaders,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            prompt: cleanImagePrompt(messageText),
+            projectId: activeProject.id,
+            conversationId: activeProject.conversationId,
+            projectName: activeProject.name
+          })
+        });
+        const data = (await response.json()) as ApiImageGenerationResponse;
+        if (response.status === 401) {
+          onSignOut();
+          return;
+        }
+        if (!response.ok || !data.message) throw new Error(data.error || "图片生成失败");
+
+        if (data.conversationId) {
+          setProjects((current) =>
+            current.map((project) => (project.id === activeProject.id ? { ...project, conversationId: data.conversationId } : project))
+          );
+        }
+
+        setMessages((current) => [...current, data.message as Message]);
+        return;
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
