@@ -47,6 +47,31 @@ export type XfyunVideoQueryResult = {
   bgmUrl?: string;
 };
 
+type XfyunVideoGenerateRequest = {
+  header: {
+    app_id: string;
+    callback_url?: string;
+  };
+  parameter: {
+    avatar: {
+      prompt: string;
+      word_count?: number;
+    };
+  };
+};
+
+type XfyunVideoQueryRequest = {
+  header: {
+    app_id: string;
+    task_id: string;
+  };
+};
+
+type XfyunHttpResult = {
+  status: number;
+  data: Record<string, unknown>;
+};
+
 const DEFAULT_GENERATE_URL = "https://vms.cn-huadong-1.xf-yun.com/v1/private/video/generate";
 const DEFAULT_QUERY_URL = "https://vms.cn-huadong-1.xf-yun.com/v1/private/video/query";
 const DEFAULT_POLL_INTERVAL_MS = 5000;
@@ -57,11 +82,6 @@ const wordCountByDuration: Record<VideoDurationOption, number> = {
   "30s": 80,
   "60s": 150,
   "90s": 220
-};
-
-type XfyunHttpResult = {
-  status: number;
-  data: Record<string, unknown>;
 };
 
 export function getVideoProviderConfig(): VideoProviderConfig | null {
@@ -100,12 +120,8 @@ function parsePositiveInt(value: string | undefined, fallback: number, min: numb
   return Math.min(max, Math.max(min, parsed));
 }
 
-function encodeBase64Json(value: unknown) {
-  return Buffer.from(JSON.stringify(value), "utf8").toString("base64");
-}
-
-function decodeBase64Text(value: string) {
-  return Buffer.from(value, "base64").toString("utf8");
+function clampWordCount(value: number) {
+  return Math.min(300, Math.max(50, Math.trunc(value)));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -115,6 +131,16 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function readString(record: Record<string, unknown> | null, key: string) {
   const value = record?.[key];
   return value === undefined || value === null ? "" : String(value);
+}
+
+function decodeMaybeBase64Text(value: string) {
+  if (!value || /^https?:\/\//i.test(value)) return value;
+  try {
+    const decoded = Buffer.from(value, "base64").toString("utf8");
+    return decoded.trim() ? decoded : value;
+  } catch {
+    return value;
+  }
 }
 
 function maskTaskId(taskId: string) {
@@ -150,7 +176,11 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-async function callXfyunVideo(url: string, config: VideoProviderConfig, body: unknown): Promise<XfyunHttpResult> {
+async function callXfyunVideo(
+  url: string,
+  config: VideoProviderConfig,
+  body: XfyunVideoGenerateRequest | XfyunVideoQueryRequest
+): Promise<XfyunHttpResult> {
   const response = await fetchWithTimeout(
     buildSignedUrl(url, config.apiKey, config.apiSecret),
     {
@@ -184,7 +214,7 @@ function formatHttpError(status: number, body: string) {
   if (status === 401 || /401|Unauthorized|signature/i.test(body)) return "讯飞视频鉴权失败，请检查 APP_ID、APIKey、APISecret。";
   if (/quota|余额|额度|insufficient/i.test(body)) return "讯飞视频免费额度不足或余额不足。";
   if (/not.*open|未开通|permission|forbidden|403/i.test(body)) return "讯飞数字人视频服务未开通或无权限。";
-  if (/param|参数|invalid/i.test(body)) return `讯飞视频请求参数错误：${body}`;
+  if (/param|参数|invalid|schema/i.test(body)) return `讯飞视频请求参数错误：${body}`;
   return body || `讯飞数字人视频接口调用失败，状态码 ${status}`;
 }
 
@@ -199,26 +229,20 @@ function assertSuccess(response: Record<string, unknown>, stage: string) {
   if (code && code !== "0") {
     if (/quota|余额|额度/i.test(message)) throw new Error("讯飞视频免费额度不足或余额不足。");
     if (/未开通|权限|permission|forbidden/i.test(message)) throw new Error("讯飞数字人视频服务未开通或无权限。");
-    if (/param|参数|invalid/i.test(message)) throw new Error(`讯飞视频请求参数错误：${message}`);
+    if (/param|参数|invalid|schema/i.test(message)) throw new Error(`讯飞视频请求参数错误：${message}`);
     throw new Error(`讯飞数字人视频${stage}失败：${message}`);
   }
 }
 
-function getPayloadRecord(response: Record<string, unknown>, key: string) {
-  return asRecord(asRecord(response.payload)?.[key]);
-}
+function readPayloadValue(response: Record<string, unknown>, key: "text" | "image" | "audio" | "bgm" | "video") {
+  const payload = asRecord(response.payload);
+  const value = payload?.[key];
 
-function readPayloadText(response: Record<string, unknown>, key: "text" | "image" | "audio" | "bgm" | "video") {
-  const payload = getPayloadRecord(response, key);
-  const rawText = readString(payload, "text") || readString(payload, "url");
-  if (!rawText) return "";
-  if (/^https?:\/\//i.test(rawText)) return rawText;
+  if (typeof value === "string") return decodeMaybeBase64Text(value);
 
-  try {
-    return decodeBase64Text(rawText);
-  } catch {
-    return rawText;
-  }
+  const record = asRecord(value);
+  const textValue = readString(record, "text") || readString(record, "url");
+  return decodeMaybeBase64Text(textValue);
 }
 
 function extractUrl(rawValue: string) {
@@ -269,13 +293,13 @@ function normalizeTaskStatus(taskStatus: string): XfyunVideoStatus {
 
 function buildPrompt(input: CreateVideoTaskInput) {
   return [
-    `请生成一段适合大学生学习的数字人微课视频。`,
+    "请生成一段适合大学生学习的数字人微课视频。",
     `当前学习项目：${input.projectName}`,
     `主题：${input.topic}`,
     `预计时长：${durationLabel(input.duration)}`,
     `难度：${input.difficulty}`,
     `风格：${input.style}`,
-    `要求：语言清晰，先解释概念，再给出公式或例子，最后总结易错点。`
+    "要求：语言清晰，先解释概念，再给出公式或例子，最后总结易错点。"
   ].join("\n");
 }
 
@@ -285,43 +309,46 @@ export function durationLabel(duration: VideoDurationOption) {
   return "约1分钟";
 }
 
-function buildGenerateBody(config: VideoProviderConfig, input: CreateVideoTaskInput) {
-  const prompt = buildPrompt(input);
+function buildGenerateBody(config: VideoProviderConfig, input: CreateVideoTaskInput): XfyunVideoGenerateRequest {
+  const prompt = buildPrompt(input).trim();
+  if (!prompt) throw new Error("视频提示词不能为空。");
 
+  const wordCount = clampWordCount(wordCountByDuration[input.duration]);
+  const body: XfyunVideoGenerateRequest = {
+    header: {
+      app_id: config.appId
+    },
+    parameter: {
+      avatar: {
+        prompt,
+        word_count: wordCount
+      }
+    }
+  };
+
+  console.info("[xfyun-video-generate-body]", {
+    headerKeys: Object.keys(body.header),
+    parameterKeys: Object.keys(body.parameter),
+    avatarKeys: Object.keys(body.parameter.avatar),
+    promptLength: body.parameter.avatar.prompt.length,
+    wordCount: body.parameter.avatar.word_count
+  });
+
+  return body;
+}
+
+function buildQueryBody(config: VideoProviderConfig, taskId: string): XfyunVideoQueryRequest {
   return {
     header: {
       app_id: config.appId,
-      status: 3
-    },
-    parameter: {
-      video: {
-        result: {
-          encoding: "utf8",
-          compress: "raw",
-          format: "json"
-        }
-      }
-    },
-    payload: {
-      text: {
-        encoding: "utf8",
-        compress: "raw",
-        format: "json",
-        status: 3,
-        text: encodeBase64Json({
-          prompt,
-          word_count: wordCountByDuration[input.duration],
-          duration: durationLabel(input.duration),
-          difficulty: input.difficulty,
-          style: input.style
-        })
-      }
+      task_id: taskId
     }
   };
 }
 
 export async function createXfyunVideoTask(input: CreateVideoTaskInput, config: VideoProviderConfig): Promise<XfyunVideoTask> {
-  const response = await callXfyunVideo(config.generateUrl, config, buildGenerateBody(config, input));
+  const body = buildGenerateBody(config, input);
+  const response = await callXfyunVideo(config.generateUrl, config, body);
   const header = getHeader(response.data);
   const taskId = readString(header, "task_id");
 
@@ -340,25 +367,20 @@ export async function createXfyunVideoTask(input: CreateVideoTaskInput, config: 
     taskId,
     provider: "xfyun-avatar-video",
     model: "xfyun-avatar-video",
-    prompt: buildPrompt(input),
-    wordCount: wordCountByDuration[input.duration]
+    prompt: body.parameter.avatar.prompt,
+    wordCount: body.parameter.avatar.word_count || wordCountByDuration[input.duration]
   };
 }
 
 export async function queryXfyunVideoTask(taskId: string, config: VideoProviderConfig): Promise<XfyunVideoQueryResult> {
-  const response = await callXfyunVideo(config.queryUrl, config, {
-    header: {
-      app_id: config.appId,
-      task_id: taskId
-    }
-  });
+  const response = await callXfyunVideo(config.queryUrl, config, buildQueryBody(config, taskId));
   const header = getHeader(response.data);
   const taskStatus = getTaskStatus(response.data);
-  const textPayload = readPayloadText(response.data, "text");
-  const imagePayload = readPayloadText(response.data, "image");
-  const audioPayload = readPayloadText(response.data, "audio");
-  const bgmPayload = readPayloadText(response.data, "bgm");
-  const videoPayload = readPayloadText(response.data, "video");
+  const textPayload = readPayloadValue(response.data, "text");
+  const imagePayload = readPayloadValue(response.data, "image");
+  const audioPayload = readPayloadValue(response.data, "audio");
+  const bgmPayload = readPayloadValue(response.data, "bgm");
+  const videoPayload = readPayloadValue(response.data, "video");
   const videoUrl = extractUrl(videoPayload);
 
   console.info("[xfyun-video-query]", {
