@@ -59,6 +59,22 @@ type ApiImageStatusResponse = {
   error?: string;
 };
 
+type ApiVideoGenerationResponse = {
+  conversationId?: string;
+  message?: Message;
+  status?: "processing" | "completed" | "failed";
+  taskId?: string;
+  pollIntervalMs?: number;
+  error?: string;
+};
+
+type ApiVideoStatusResponse = {
+  message?: Message;
+  status?: "created" | "processing" | "completed" | "failed";
+  taskStatus?: string;
+  error?: string;
+};
+
 const allowedAvatarTypes = ["image/jpeg", "image/png", "image/webp"];
 const maxAvatarSize = 5 * 1024 * 1024;
 const defaultProjectStats: ProjectStats = {
@@ -71,6 +87,8 @@ const defaultProjectStats: ProjectStats = {
 
 const imagePollIntervalMs = 3000;
 const imagePollMaxCount = 40;
+const videoPollIntervalMs = 5000;
+const videoPollMaxCount = 60;
 
 function getImageTaskFromMessage(message: Message) {
   const imagePart = message.parts?.find((part) => part.type === "image" && part.taskId && part.status === "generating");
@@ -80,6 +98,20 @@ function getImageTaskFromMessage(message: Message) {
     taskId: imagePart.taskId,
     prompt: imagePart.prompt,
     taskStatus: imagePart.taskStatus
+  };
+}
+
+function getVideoTaskFromMessage(message: Message) {
+  const videoPart = message.parts?.find((part) => part.type === "video" && part.taskId && part.status === "generating");
+  if (!videoPart || videoPart.type !== "video" || !videoPart.taskId) return null;
+
+  return {
+    taskId: videoPart.taskId,
+    topic: videoPart.title,
+    duration: videoPart.duration || "60s",
+    difficulty: videoPart.difficulty || "基础",
+    style: videoPart.style || "知识讲解",
+    taskStatus: videoPart.taskStatus
   };
 }
 
@@ -122,12 +154,44 @@ function isImageGenerationRequest(message: string) {
   return /(生成|画|绘制|做|创建).*(图片|插图|配图|封面|场景图|概念图|示意图|海报)|重新生成图片|继续修改.*图片/.test(message);
 }
 
+function isVideoGenerationRequest(message: string) {
+  return /(生成|做|创建|制作).*(视频|短视频|微课|教学视频)|视频讲解|做成教学视频|重新生成教学视频|修改教学视频/.test(message);
+}
+
 function cleanImagePrompt(message: string) {
   return message
     .replace(/^重新生成图片[:：]?/, "")
     .replace(/^生成一张教学插图[:：]?/, "")
     .replace(/^请在这张图片描述基础上继续修改[:：]?/, "")
     .trim() || message.trim();
+}
+
+function cleanVideoTopic(message: string) {
+  return message
+    .replace(/^重新生成教学视频[:：]?/, "")
+    .replace(/^生成一个\s*(30秒|1分钟|一分钟|1分30秒|一分半)?\s*教学视频[:：]?/, "")
+    .replace(/^请按这个意见修改教学视频[:：]?/, "")
+    .replace(/^(生成|做|创建|制作)(一个|一段)?(约)?(30秒|1分钟|一分钟|1分30秒|一分半)?(的)?(视频|短视频|微课|教学视频)[，,：:]?/, "")
+    .trim() || message.trim();
+}
+
+function inferVideoDuration(message: string): "30s" | "60s" | "90s" {
+  if (/90|1\.5|1分30|一分半|1 分 30/.test(message)) return "90s";
+  if (/30|半分钟/.test(message)) return "30s";
+  return "60s";
+}
+
+function inferVideoDifficulty(message: string): "入门" | "基础" | "进阶" {
+  if (/入门|初学|零基础/.test(message)) return "入门";
+  if (/进阶|提高|深入/.test(message)) return "进阶";
+  return "基础";
+}
+
+function inferVideoStyle(message: string): "知识讲解" | "考前复习" | "概念科普" | "案例分析" {
+  if (/考前|复习|冲刺/.test(message)) return "考前复习";
+  if (/科普|通俗/.test(message)) return "概念科普";
+  if (/案例|例子|应用/.test(message)) return "案例分析";
+  return "知识讲解";
 }
 
 function profileFromEmail(email?: string): UserProfile {
@@ -215,6 +279,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const shouldStickToBottomRef = useRef(true);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imagePollingTasksRef = useRef<Set<string>>(new Set());
+  const videoPollingTasksRef = useRef<Set<string>>(new Set());
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) || projects[0],
@@ -534,6 +599,88 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     [activeProject, authHeaders, onSignOut]
   );
 
+  const startVideoStatusPolling = useCallback(
+    (message: Message, initialPollCount = 1) => {
+      if (!activeProject) return;
+
+      const task = getVideoTaskFromMessage(message);
+      if (!task) return;
+
+      const pollingKey = message.id;
+      if (videoPollingTasksRef.current.has(pollingKey)) return;
+      videoPollingTasksRef.current.add(pollingKey);
+
+      const poll = async (currentMessage: Message, pollCount: number) => {
+        const currentTask = getVideoTaskFromMessage(currentMessage);
+        if (!currentTask) {
+          videoPollingTasksRef.current.delete(pollingKey);
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/video/status", {
+            method: "POST",
+            headers: {
+              ...authHeaders,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              projectId: activeProject.id,
+              messageId: currentMessage.id,
+              taskId: currentTask.taskId,
+              topic: currentTask.topic,
+              duration: currentTask.duration,
+              difficulty: currentTask.difficulty,
+              style: currentTask.style,
+              pollCount
+            })
+          });
+          const data = (await response.json()) as ApiVideoStatusResponse;
+          if (response.status === 401) {
+            onSignOut();
+            return;
+          }
+          if (!response.ok || !data.message) throw new Error(data.error || "视频任务查询失败");
+
+          setMessages((current) => replaceMessage(current, data.message as Message));
+
+          if (data.status !== "completed" && pollCount < videoPollMaxCount) {
+            window.setTimeout(() => {
+              void poll(data.message as Message, pollCount + 1);
+            }, videoPollIntervalMs);
+            return;
+          }
+        } catch (error) {
+          const messageText = getFriendlyErrorMessage(error) || "视频任务查询失败，请稍后点击继续查询。";
+          setMessages((current) =>
+            current.map((item) => {
+              if (item.id !== currentMessage.id) return item;
+              return {
+                ...item,
+                content: messageText,
+                parts: item.parts?.map((part) =>
+                  part.type === "video"
+                    ? {
+                        ...part,
+                        status: "generating",
+                        progressLabel: messageText,
+                        error: messageText
+                      }
+                    : part
+                )
+              };
+            })
+          );
+        }
+
+        videoPollingTasksRef.current.delete(pollingKey);
+      };
+
+      void poll(message, initialPollCount);
+    },
+    [activeProject, authHeaders, onSignOut]
+  );
+
   useEffect(() => {
     if (!activeProject) return;
 
@@ -541,8 +688,11 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       if (getImageTaskFromMessage(message)) {
         startImageStatusPolling(message);
       }
+      if (getVideoTaskFromMessage(message)) {
+        startVideoStatusPolling(message);
+      }
     });
-  }, [activeProject, messages, startImageStatusPolling]);
+  }, [activeProject, messages, startImageStatusPolling, startVideoStatusPolling]);
 
   const sendMessage = async (text?: string) => {
     const messageText = (text ?? input).trim();
@@ -565,6 +715,44 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     const assistantMessageId = crypto.randomUUID();
 
     try {
+      if (isVideoGenerationRequest(messageText)) {
+        const response = await fetch("/api/video/generate", {
+          method: "POST",
+          headers: {
+            ...authHeaders,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            topic: cleanVideoTopic(messageText),
+            duration: inferVideoDuration(messageText),
+            difficulty: inferVideoDifficulty(messageText),
+            style: inferVideoStyle(messageText),
+            projectId: activeProject.id,
+            conversationId: activeProject.conversationId,
+            projectName: activeProject.name
+          })
+        });
+        const data = (await response.json()) as ApiVideoGenerationResponse;
+        if (response.status === 401) {
+          onSignOut();
+          return;
+        }
+        if (!response.ok || !data.message) throw new Error(data.error || "视频生成失败");
+
+        if (data.conversationId) {
+          setProjects((current) =>
+            current.map((project) => (project.id === activeProject.id ? { ...project, conversationId: data.conversationId } : project))
+          );
+        }
+
+        const videoMessage = data.message as Message;
+        setMessages((current) => [...current, videoMessage]);
+        if (data.status === "processing") {
+          startVideoStatusPolling(videoMessage);
+        }
+        return;
+      }
+
       if (isImageGenerationRequest(messageText)) {
         const response = await fetch("/api/generate/image", {
           method: "POST",
@@ -1184,6 +1372,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
               onSubmitMessage={submitMessage}
               onSendMessage={(text) => void sendMessage(text)}
               onCheckImageStatus={(message) => startImageStatusPolling(message)}
+              onCheckVideoStatus={(message) => startVideoStatusPolling(message)}
               onToggleRecording={() => setIsRecording((current) => !current)}
             />
             {insightPanel}

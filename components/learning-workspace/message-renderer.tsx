@@ -13,6 +13,7 @@ type MessageRendererProps = {
   message: Message;
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
+  onCheckVideoStatus?: (message: Message) => void;
 };
 
 const markdownComponents: Components = {
@@ -261,12 +262,14 @@ function MediaPlaceholder({
   message,
   part,
   onSendMessage,
-  onCheckImageStatus
+  onCheckImageStatus,
+  onCheckVideoStatus
 }: {
   message: Message;
   part: MessagePart;
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
+  onCheckVideoStatus?: (message: Message) => void;
 }) {
   if (part.type === "image") {
     const downloadImage = () => {
@@ -313,6 +316,16 @@ function MediaPlaceholder({
   }
 
   if (part.type === "video") {
+    const downloadVideo = () => {
+      if (!part.url) return;
+      const link = document.createElement("a");
+      link.href = part.url;
+      link.download = `${part.title || "zhijie-video"}.mp4`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.click();
+    };
+
     return (
       <div className="generated-block">
         <div className="generated-block-header">
@@ -321,8 +334,26 @@ function MediaPlaceholder({
             <button type="button" onClick={() => onSendMessage?.(`重新生成教学视频：${part.title}`)}>
               <RefreshCw size={14} /> 重新生成
             </button>
+            {part.status === "generating" && part.taskId && (
+              <button type="button" onClick={() => onCheckVideoStatus?.(message)}>
+                继续查询
+              </button>
+            )}
+            <button type="button" onClick={() => onSendMessage?.(`请按这个意见修改教学视频：${part.title}`)}>
+              继续修改
+            </button>
+            <button type="button" onClick={downloadVideo} disabled={!part.url}>
+              <Download size={14} /> 下载
+            </button>
           </span>
         </div>
+        {(part.duration || part.difficulty || part.style) && (
+          <p className="generated-note">
+            预计时长：{part.duration === "30s" ? "约30秒" : part.duration === "90s" ? "约1分30秒" : "约1分钟"}
+            {part.difficulty ? `；难度：${part.difficulty}` : ""}
+            {part.style ? `；风格：${part.style}` : ""}
+          </p>
+        )}
         {part.url ? (
           <video className="generated-video" src={part.url} controls />
         ) : (
@@ -346,7 +377,7 @@ function MediaPlaceholder({
   return null;
 }
 
-export function MessageRenderer({ message, onSendMessage, onCheckImageStatus }: MessageRendererProps) {
+export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, onCheckVideoStatus }: MessageRendererProps) {
   const parts = message.parts?.length ? message.parts : partsFromContent(message.content);
 
   return (
@@ -368,6 +399,7 @@ export function MessageRenderer({ message, onSendMessage, onCheckImageStatus }: 
             part={part}
             onSendMessage={onSendMessage}
             onCheckImageStatus={onCheckImageStatus}
+            onCheckVideoStatus={onCheckVideoStatus}
           />
         );
       })}

@@ -37,6 +37,7 @@ type ChatPanelProps = {
   onSubmitMessage: (event: FormEvent) => void;
   onSendMessage: (text?: string) => void;
   onCheckImageStatus: (message: Message) => void;
+  onCheckVideoStatus: (message: Message) => void;
   onToggleRecording: () => void;
 };
 
@@ -62,6 +63,7 @@ export function ChatPanel({
   onSubmitMessage,
   onSendMessage,
   onCheckImageStatus,
+  onCheckVideoStatus,
   onToggleRecording
 }: ChatPanelProps) {
   return (
@@ -111,7 +113,12 @@ export function ChatPanel({
                 </button>
               </div>
               <div className="message-bubble">
-                <MessageRenderer message={message} onSendMessage={onSendMessage} onCheckImageStatus={onCheckImageStatus} />
+                <MessageRenderer
+                  message={message}
+                  onSendMessage={onSendMessage}
+                  onCheckImageStatus={onCheckImageStatus}
+                  onCheckVideoStatus={onCheckVideoStatus}
+                />
               </div>
             </div>
           </article>
