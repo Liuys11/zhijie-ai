@@ -3,9 +3,9 @@ import {
   BrainCircuit,
   FolderOpen,
   LayoutDashboard,
+  LogOut,
   Menu,
   MessageCircle,
-  LogOut,
   Plus,
   Trash2,
   X
@@ -96,47 +96,46 @@ export function WorkspaceSidebar({
           <Plus size={17} /> 新建学习项目
         </button>
 
-        <nav className="primary-nav">
+        <div className="sidebar-projects">
+          <div className="project-heading">
+            <span>学习项目</span>
+            <button onClick={onOpenNewProject} aria-label="新建项目">
+              <Plus size={15} />
+            </button>
+          </div>
+
+          <div className="project-list">
+            {projects.map((project) => (
+              <div key={project.id} className={`project-item ${project.id === activeProjectId ? "active" : ""}`}>
+                <button className="project-select" onClick={() => onSelectProject(project.id)}>
+                  <span className="project-emoji">{project.emoji}</span>
+                  <span className="project-copy">
+                    <strong>{project.name}</strong>
+                    <small>{project.subject}</small>
+                  </span>
+                </button>
+                <span className="mini-progress">{project.progress}%</span>
+                <button
+                  className="project-delete"
+                  onClick={() => onDeleteProject(project.id)}
+                  disabled={deletingProjectId === project.id}
+                  aria-label={`删除${project.name}`}
+                  title="删除项目"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <nav className="primary-nav" aria-label="当前项目功能">
           {navItems.map(([label, Icon]) => (
             <button className={activeSection === label ? "active" : ""} key={label} onClick={() => onSelectSection(label)}>
               <Icon size={18} /> {label}
             </button>
           ))}
         </nav>
-
-        <div className="project-heading">
-          <span>学习项目</span>
-          <button onClick={onOpenNewProject} aria-label="新建项目">
-            <Plus size={15} />
-          </button>
-        </div>
-
-        <div className="project-list">
-          {projects.map((project) => (
-            <div
-              key={project.id}
-              className={`project-item ${project.id === activeProjectId ? "active" : ""}`}
-            >
-              <button className="project-select" onClick={() => onSelectProject(project.id)}>
-                <span className="project-emoji">{project.emoji}</span>
-                <span className="project-copy">
-                  <strong>{project.name}</strong>
-                  <small>{project.subject}</small>
-                </span>
-              </button>
-              <span className="mini-progress">{project.progress}%</span>
-              <button
-                className="project-delete"
-                onClick={() => onDeleteProject(project.id)}
-                disabled={deletingProjectId === project.id}
-                aria-label={`删除${project.name}`}
-                title="删除项目"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
 
         <div className="sidebar-footer">
           <button className="profile-trigger" onClick={onOpenProfile} title="编辑个人资料">

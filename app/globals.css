@@ -60,7 +60,7 @@ textarea:focus-visible {
   padding: 22px 16px 16px;
   background: #10182b;
   color: #eef2ff;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .sidebar-brand {
@@ -120,7 +120,9 @@ textarea:focus-visible {
 .primary-nav {
   display: grid;
   gap: 5px;
-  margin-top: 20px;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .primary-nav button {
@@ -148,7 +150,7 @@ textarea:focus-visible {
 }
 
 .project-heading {
-  margin: 26px 4px 9px 12px;
+  margin: 18px 4px 9px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -166,8 +168,20 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
+.sidebar-projects {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
 .project-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
   display: grid;
+  align-content: start;
   gap: 4px;
 }
 
@@ -270,7 +284,7 @@ textarea:focus-visible {
 }
 
 .sidebar-footer {
-  margin-top: auto;
+  margin-top: 14px;
   padding: 14px 5px 2px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;
