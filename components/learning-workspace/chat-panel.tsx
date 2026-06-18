@@ -38,6 +38,7 @@ type ChatPanelProps = {
   onSendMessage: (text?: string) => void;
   onCheckImageStatus: (message: Message) => void;
   onCheckVideoStatus: (message: Message) => void;
+  checkingVideoMessageIds: Set<string>;
   onToggleRecording: () => void;
 };
 
@@ -64,6 +65,7 @@ export function ChatPanel({
   onSendMessage,
   onCheckImageStatus,
   onCheckVideoStatus,
+  checkingVideoMessageIds,
   onToggleRecording
 }: ChatPanelProps) {
   return (
@@ -118,6 +120,7 @@ export function ChatPanel({
                   onSendMessage={onSendMessage}
                   onCheckImageStatus={onCheckImageStatus}
                   onCheckVideoStatus={onCheckVideoStatus}
+                  checkingVideoMessageIds={checkingVideoMessageIds}
                 />
               </div>
             </div>

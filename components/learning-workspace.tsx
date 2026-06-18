@@ -102,7 +102,7 @@ function getImageTaskFromMessage(message: Message) {
 }
 
 function getVideoTaskFromMessage(message: Message) {
-  const videoPart = message.parts?.find((part) => part.type === "video" && part.taskId && part.status === "generating");
+  const videoPart = message.parts?.find((part) => part.type === "video" && part.taskId && (part.status === "generating" || part.status === "queued"));
   if (!videoPart || videoPart.type !== "video" || !videoPart.taskId) return null;
 
   return {
@@ -117,6 +117,12 @@ function getVideoTaskFromMessage(message: Message) {
 
 function replaceMessage(current: Message[], nextMessage: Message) {
   return current.map((message) => (message.id === nextMessage.id ? nextMessage : message));
+}
+
+function maskTaskId(taskId?: string) {
+  if (!taskId) return "";
+  if (taskId.length <= 8) return "***";
+  return `${taskId.slice(0, 4)}...${taskId.slice(-4)}`;
 }
 
 const sectionToSlug: Record<WorkspaceSection, string> = {
@@ -269,6 +275,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [savingSteps, setSavingSteps] = useState(false);
   const [uploadingResource, setUploadingResource] = useState(false);
   const [deletingResourceId, setDeletingResourceId] = useState("");
+  const [checkingVideoMessageIds, setCheckingVideoMessageIds] = useState<Set<string>>(() => new Set());
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -280,6 +287,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imagePollingTasksRef = useRef<Set<string>>(new Set());
   const videoPollingTasksRef = useRef<Set<string>>(new Set());
+  const videoInFlightTasksRef = useRef<Set<string>>(new Set());
+  const videoPollingTimersRef = useRef<Map<string, number>>(new Map());
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) || projects[0],
@@ -417,8 +426,16 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   }, [messages, isLoading]);
 
   useEffect(() => {
+    const videoPollingTimers = videoPollingTimersRef.current;
+    const videoPollingTasks = videoPollingTasksRef.current;
+    const videoInFlightTasks = videoInFlightTasksRef.current;
+
     return () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      videoPollingTimers.forEach((timer) => window.clearTimeout(timer));
+      videoPollingTimers.clear();
+      videoPollingTasks.clear();
+      videoInFlightTasks.clear();
     };
   }, []);
 
@@ -521,6 +538,18 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     return message || "模型服务暂时不可用，请稍后再试。";
   };
 
+  const setVideoMessageChecking = (messageId: string, checking: boolean) => {
+    setCheckingVideoMessageIds((current) => {
+      const next = new Set(current);
+      if (checking) {
+        next.add(messageId);
+      } else {
+        next.delete(messageId);
+      }
+      return next;
+    });
+  };
+
   const startImageStatusPolling = useCallback(
     (message: Message, initialPollCount = 1) => {
       if (!activeProject) return;
@@ -600,22 +629,105 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   );
 
   const startVideoStatusPolling = useCallback(
-    (message: Message, initialPollCount = 1) => {
+    (message: Message, initialPollCount = 1, options: { manual?: boolean } = {}) => {
       if (!activeProject) return;
 
+      const videoPart = message.parts?.find((part) => part.type === "video");
       const task = getVideoTaskFromMessage(message);
-      if (!task) return;
+      console.log("[video-continue-query]", {
+        hasTaskId: Boolean(task?.taskId),
+        taskId: maskTaskId(task?.taskId),
+        currentStatus: videoPart?.type === "video" ? videoPart.status : undefined,
+        taskStatus: videoPart?.type === "video" ? videoPart.taskStatus : undefined,
+        messageId: message.id
+      });
+
+      if (!task) {
+        const messageText = "未找到该视频任务编号，无法继续查询。";
+        setMessages((current) =>
+          current.map((item) => {
+            if (item.id !== message.id) return item;
+            return {
+              ...item,
+              content: messageText,
+              parts: item.parts?.map((part) =>
+                part.type === "video"
+                  ? {
+                      ...part,
+                      status: "failed",
+                      error: messageText,
+                      progressLabel: messageText
+                    }
+                  : part
+              )
+            };
+          })
+        );
+        return;
+      }
 
       const pollingKey = message.id;
-      if (videoPollingTasksRef.current.has(pollingKey)) return;
+      const pendingTimer = videoPollingTimersRef.current.get(pollingKey);
+      if (pendingTimer && options.manual) {
+        window.clearTimeout(pendingTimer);
+        videoPollingTimersRef.current.delete(pollingKey);
+      }
+
+      if (videoInFlightTasksRef.current.has(pollingKey)) {
+        const messageText = "视频状态正在查询中，请稍候。";
+        setMessages((current) =>
+          current.map((item) => {
+            if (item.id !== message.id) return item;
+            return {
+              ...item,
+              content: messageText,
+              parts: item.parts?.map((part) =>
+                part.type === "video"
+                  ? {
+                      ...part,
+                      progressLabel: messageText
+                    }
+                  : part
+              )
+            };
+          })
+        );
+        return;
+      }
+
+      if (videoPollingTasksRef.current.has(pollingKey) && !options.manual) return;
       videoPollingTasksRef.current.add(pollingKey);
 
       const poll = async (currentMessage: Message, pollCount: number) => {
         const currentTask = getVideoTaskFromMessage(currentMessage);
         if (!currentTask) {
           videoPollingTasksRef.current.delete(pollingKey);
+          setVideoMessageChecking(pollingKey, false);
           return;
         }
+
+        videoInFlightTasksRef.current.add(pollingKey);
+        setVideoMessageChecking(pollingKey, true);
+        setMessages((current) =>
+          current.map((item) => {
+            if (item.id !== currentMessage.id) return item;
+            return {
+              ...item,
+              content: "正在查询视频状态...",
+              parts: item.parts?.map((part) =>
+                part.type === "video"
+                  ? {
+                      ...part,
+                      progressLabel: "正在查询视频状态..."
+                    }
+                  : part
+              )
+            };
+          })
+        );
+
+        let nextMessage: Message | null = null;
+        let shouldContinue = false;
 
         try {
           const response = await fetch("/api/video/status", {
@@ -642,16 +754,31 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           }
           if (!response.ok || !data.message) throw new Error(data.error || "视频任务查询失败");
 
-          setMessages((current) => replaceMessage(current, data.message as Message));
+          nextMessage = data.message as Message;
+          setMessages((current) => replaceMessage(current, nextMessage as Message));
 
-          if (data.status !== "completed" && pollCount < videoPollMaxCount) {
-            window.setTimeout(() => {
-              void poll(data.message as Message, pollCount + 1);
-            }, videoPollIntervalMs);
-            return;
+          shouldContinue = data.status !== "completed" && pollCount < videoPollMaxCount;
+          if (!shouldContinue && data.status !== "completed") {
+            setMessages((current) =>
+              current.map((item) => {
+                if (item.id !== currentMessage.id) return item;
+                return {
+                  ...item,
+                  content: "视频仍在生成中，请稍后继续查询。",
+                  parts: item.parts?.map((part) =>
+                    part.type === "video"
+                      ? {
+                          ...part,
+                          progressLabel: "视频仍在生成中，请稍后继续查询。"
+                        }
+                      : part
+                  )
+                };
+              })
+            );
           }
         } catch (error) {
-          const messageText = getFriendlyErrorMessage(error) || "视频任务查询失败，请稍后点击继续查询。";
+          const messageText = getFriendlyErrorMessage(error) || "视频状态查询失败，请稍后重试。";
           setMessages((current) =>
             current.map((item) => {
               if (item.id !== currentMessage.id) return item;
@@ -671,6 +798,18 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
               };
             })
           );
+        } finally {
+          videoInFlightTasksRef.current.delete(pollingKey);
+          setVideoMessageChecking(pollingKey, false);
+        }
+
+        if (shouldContinue && nextMessage) {
+          const timer = window.setTimeout(() => {
+            videoPollingTimersRef.current.delete(pollingKey);
+            void poll(nextMessage as Message, pollCount + 1);
+          }, videoPollIntervalMs);
+          videoPollingTimersRef.current.set(pollingKey, timer);
+          return;
         }
 
         videoPollingTasksRef.current.delete(pollingKey);
@@ -1372,7 +1511,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
               onSubmitMessage={submitMessage}
               onSendMessage={(text) => void sendMessage(text)}
               onCheckImageStatus={(message) => startImageStatusPolling(message)}
-              onCheckVideoStatus={(message) => startVideoStatusPolling(message)}
+              onCheckVideoStatus={(message) => startVideoStatusPolling(message, 1, { manual: true })}
+              checkingVideoMessageIds={checkingVideoMessageIds}
               onToggleRecording={() => setIsRecording((current) => !current)}
             />
             {insightPanel}

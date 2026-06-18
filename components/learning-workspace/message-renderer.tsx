@@ -14,6 +14,7 @@ type MessageRendererProps = {
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
   onCheckVideoStatus?: (message: Message) => void;
+  checkingVideoMessageIds?: Set<string>;
 };
 
 const markdownComponents: Components = {
@@ -263,13 +264,15 @@ function MediaPlaceholder({
   part,
   onSendMessage,
   onCheckImageStatus,
-  onCheckVideoStatus
+  onCheckVideoStatus,
+  checkingVideoMessageIds
 }: {
   message: Message;
   part: MessagePart;
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
   onCheckVideoStatus?: (message: Message) => void;
+  checkingVideoMessageIds?: Set<string>;
 }) {
   if (part.type === "image") {
     const downloadImage = () => {
@@ -316,6 +319,7 @@ function MediaPlaceholder({
   }
 
   if (part.type === "video") {
+    const isChecking = checkingVideoMessageIds?.has(message.id) || false;
     const downloadVideo = () => {
       if (!part.url) return;
       const link = document.createElement("a");
@@ -334,9 +338,9 @@ function MediaPlaceholder({
             <button type="button" onClick={() => onSendMessage?.(`重新生成教学视频：${part.title}`)}>
               <RefreshCw size={14} /> 重新生成
             </button>
-            {part.status === "generating" && part.taskId && (
-              <button type="button" onClick={() => onCheckVideoStatus?.(message)}>
-                继续查询
+            {part.status === "generating" && (
+              <button type="button" onClick={() => onCheckVideoStatus?.(message)} disabled={isChecking}>
+                <RefreshCw size={14} /> {isChecking ? "查询中..." : "继续查询"}
               </button>
             )}
             <button type="button" onClick={() => onSendMessage?.(`请按这个意见修改教学视频：${part.title}`)}>
@@ -377,7 +381,7 @@ function MediaPlaceholder({
   return null;
 }
 
-export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, onCheckVideoStatus }: MessageRendererProps) {
+export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, onCheckVideoStatus, checkingVideoMessageIds }: MessageRendererProps) {
   const parts = message.parts?.length ? message.parts : partsFromContent(message.content);
 
   return (
@@ -400,6 +404,7 @@ export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, on
             onSendMessage={onSendMessage}
             onCheckImageStatus={onCheckImageStatus}
             onCheckVideoStatus={onCheckVideoStatus}
+            checkingVideoMessageIds={checkingVideoMessageIds}
           />
         );
       })}
