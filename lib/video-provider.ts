@@ -72,6 +72,12 @@ type XfyunHttpResult = {
   data: Record<string, unknown>;
 };
 
+type PayloadReadResult = {
+  value: string;
+  kind: string;
+  textLength: number;
+};
+
 const DEFAULT_GENERATE_URL = "https://vms.cn-huadong-1.xf-yun.com/v1/private/video/generate";
 const DEFAULT_QUERY_URL = "https://vms.cn-huadong-1.xf-yun.com/v1/private/video/query";
 const DEFAULT_POLL_INTERVAL_MS = 5000;
@@ -144,14 +150,18 @@ function readString(record: Record<string, unknown> | null, key: string) {
   return value === undefined || value === null ? "" : String(value);
 }
 
-function decodeMaybeBase64Text(value: string) {
-  if (!value || /^https?:\/\//i.test(value)) return value;
+function decodeTextCandidates(value: string) {
+  const candidates = [value];
+  if (!value || /^https?:\/\//i.test(value)) return candidates;
+
   try {
-    const decoded = Buffer.from(value, "base64").toString("utf8");
-    return decoded.trim() ? decoded : value;
+    const decoded = Buffer.from(value, "base64").toString("utf8").trim();
+    if (decoded && decoded !== value) candidates.push(decoded);
   } catch {
-    return value;
+    // Keep the raw value only.
   }
+
+  return candidates;
 }
 
 function maskTaskId(taskId: string) {
@@ -249,15 +259,41 @@ function assertSuccess(response: Record<string, unknown>, stage: string) {
   }
 }
 
-function readPayloadValue(response: Record<string, unknown>, key: "text" | "image" | "audio" | "bgm" | "video") {
-  const payload = asRecord(response.payload);
-  const value = payload?.[key];
-
-  if (typeof value === "string") return decodeMaybeBase64Text(value);
+function collectPayloadStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap((item) => collectPayloadStrings(item));
 
   const record = asRecord(value);
-  const textValue = readString(record, "text") || readString(record, "url");
-  return decodeMaybeBase64Text(textValue);
+  if (!record) return [];
+
+  const preferredKeys = ["text", "url", "content", "video", "video_url", "videoUrl", "file_url", "fileUrl", "download_url"];
+  const preferredValues = preferredKeys.flatMap((key) => collectPayloadStrings(record[key]));
+  const nestedValues = Object.entries(record)
+    .filter(([key]) => !preferredKeys.includes(key))
+    .flatMap(([, item]) => collectPayloadStrings(item));
+
+  return [...preferredValues, ...nestedValues];
+}
+
+function getPayloadKind(value: unknown) {
+  if (typeof value === "string") return "string";
+  if (Array.isArray(value)) return "array";
+  if (asRecord(value)) return "object";
+  if (value === undefined) return "missing";
+  return typeof value;
+}
+
+function readPayloadValue(response: Record<string, unknown>, key: "text" | "image" | "audio" | "bgm" | "video"): PayloadReadResult {
+  const payload = asRecord(response.payload);
+  const value = payload?.[key];
+  const candidates = collectPayloadStrings(value).flatMap((item) => decodeTextCandidates(item));
+  const firstValue = candidates.find((item) => item.trim()) || "";
+
+  return {
+    value: firstValue,
+    kind: getPayloadKind(value),
+    textLength: firstValue.length
+  };
 }
 
 function extractUrl(rawValue: string) {
@@ -270,6 +306,19 @@ function extractUrl(rawValue: string) {
   } catch {
     return "";
   }
+}
+
+function extractUrlFromPayload(response: Record<string, unknown>, key: "image" | "audio" | "bgm" | "video") {
+  const payload = asRecord(response.payload);
+  const value = payload?.[key];
+  const candidates = collectPayloadStrings(value).flatMap((item) => decodeTextCandidates(item));
+
+  for (const candidate of candidates) {
+    const directUrl = extractUrl(candidate);
+    if (directUrl) return directUrl;
+  }
+
+  return "";
 }
 
 function findUrl(value: unknown): string {
@@ -427,19 +476,20 @@ export async function createXfyunVideoTask(input: CreateVideoTaskInput, config: 
 export async function queryXfyunVideoTask(taskId: string, config: VideoProviderConfig): Promise<XfyunVideoQueryResult> {
   const response = await callXfyunVideo(config.queryUrl, config, buildQueryBody(config, taskId));
   const header = getHeader(response.data);
+  const payload = asRecord(response.data.payload);
   const taskStatus = getTaskStatus(response.data);
   const textPayload = readPayloadValue(response.data, "text");
-  const imagePayload = readPayloadValue(response.data, "image");
-  const audioPayload = readPayloadValue(response.data, "audio");
-  const bgmPayload = readPayloadValue(response.data, "bgm");
   const videoPayload = readPayloadValue(response.data, "video");
-  const videoUrl = extractUrl(videoPayload);
+  const videoUrl = extractUrlFromPayload(response.data, "video");
 
   console.info("[xfyun-video-query]", {
     httpStatus: response.status,
     code: readString(header, "code"),
     message: readString(header, "message"),
     taskStatus,
+    payloadKeys: Object.keys(payload || {}),
+    videoPayloadKind: videoPayload.kind,
+    videoTextLength: videoPayload.textLength,
     hasVideoUrl: Boolean(videoUrl),
     taskId: maskTaskId(taskId)
   });
@@ -462,12 +512,12 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
       taskId,
       status: "processing",
       taskStatus,
-      message: "视频任务已完成但暂未返回 MP4 地址，请继续查询。",
+      message: "视频已生成，正在获取播放地址，请继续查询。",
       hasVideoUrl: false,
-      script: textPayload || undefined,
-      imageUrl: extractUrl(imagePayload) || undefined,
-      audioUrl: extractUrl(audioPayload) || undefined,
-      bgmUrl: extractUrl(bgmPayload) || undefined
+      script: textPayload.value || undefined,
+      imageUrl: extractUrlFromPayload(response.data, "image") || undefined,
+      audioUrl: extractUrlFromPayload(response.data, "audio") || undefined,
+      bgmUrl: extractUrlFromPayload(response.data, "bgm") || undefined
     };
   }
 
@@ -478,9 +528,9 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
     message: "视频生成完成。",
     hasVideoUrl: true,
     videoUrl,
-    script: textPayload || undefined,
-    imageUrl: extractUrl(imagePayload) || undefined,
-    audioUrl: extractUrl(audioPayload) || undefined,
-    bgmUrl: extractUrl(bgmPayload) || undefined
+    script: textPayload.value || undefined,
+    imageUrl: extractUrlFromPayload(response.data, "image") || undefined,
+    audioUrl: extractUrlFromPayload(response.data, "audio") || undefined,
+    bgmUrl: extractUrlFromPayload(response.data, "bgm") || undefined
   };
 }
