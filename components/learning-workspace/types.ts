@@ -30,7 +30,59 @@ export type Message = {
   id: string;
   role: "assistant" | "user";
   content: string;
+  parts?: MessagePart[];
   time: string;
+};
+
+export type MessagePart =
+  | {
+      type: "text" | "markdown";
+      content: string;
+    }
+  | {
+      type: "mermaid";
+      content: string;
+      title?: string;
+    }
+  | {
+      type: "chart";
+      title?: string;
+      option: ChartOption;
+    }
+  | {
+      type: "image";
+      url?: string;
+      prompt: string;
+      status: "generating" | "completed" | "failed";
+      error?: string;
+    }
+  | {
+      type: "video";
+      url?: string;
+      title: string;
+      status: "queued" | "generating" | "completed" | "failed";
+      progressLabel?: string;
+      script?: string;
+      error?: string;
+    }
+  | {
+      type: "generation_status";
+      label: string;
+      status: "pending" | "running" | "completed" | "failed";
+    }
+  | {
+      type: "error";
+      message: string;
+    };
+
+export type ChartOption = {
+  title?: { text?: string };
+  tooltip?: Record<string, unknown>;
+  legend?: Record<string, unknown>;
+  xAxis?: Record<string, unknown> | Array<Record<string, unknown>>;
+  yAxis?: Record<string, unknown> | Array<Record<string, unknown>>;
+  series?: Array<Record<string, unknown>>;
+  dataset?: Record<string, unknown> | Array<Record<string, unknown>>;
 };
 
 export type Resource = {

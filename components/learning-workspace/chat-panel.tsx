@@ -5,13 +5,15 @@ import {
   FileText,
   Image as ImageIcon,
   Lightbulb,
+  LineChart,
   Mic,
   Paperclip,
   Send,
+  Sparkles,
   Trash2
 } from "lucide-react";
+import { MessageRenderer } from "./message-renderer";
 import type { Message, Project, Resource } from "./types";
-import { renderMessage } from "./utils";
 
 type ChatPanelProps = {
   activeProject: Project;
@@ -90,7 +92,7 @@ export function ChatPanel({
             key={message.id}
             ref={(node) => onRegisterMessage(message.id, node)}
           >
-            <div className="message-avatar">{message.role === "assistant" ? <BrainCircuit size={18} /> : "鲍"}</div>
+            <div className="message-avatar">{message.role === "assistant" ? <BrainCircuit size={18} /> : "我"}</div>
             <div className="message-content">
               <div className="message-meta">
                 <strong>{message.role === "assistant" ? "知界 AI" : "我"}</strong>
@@ -106,7 +108,9 @@ export function ChatPanel({
                   <Trash2 size={13} />
                 </button>
               </div>
-              <div className="message-bubble">{renderMessage(message.content)}</div>
+              <div className="message-bubble">
+                <MessageRenderer message={message} onSendMessage={onSendMessage} />
+              </div>
             </div>
           </article>
         ))}
@@ -157,7 +161,7 @@ export function ChatPanel({
               onSendMessage();
             }
           }}
-          placeholder="直接提问，例如：帮我准备竞赛答辩、梳理创新点、生成演示讲解……"
+          placeholder="直接提问，或让知界 AI 生成公式讲解、思维导图、数据图表、教学插图和微课视频..."
           rows={3}
         />
         <div className="composer-toolbar">
@@ -171,6 +175,20 @@ export function ChatPanel({
             <button type="button" className={isRecording ? "recording" : ""} onClick={onToggleRecording} title="语音输入">
               <Mic size={18} />
             </button>
+            <span className="generate-toolbar" aria-label="生成内容">
+              <button type="button" onClick={() => onInputChange("生成一张教学插图：")} title="生成图片">
+                <ImageIcon size={16} /> 图片
+              </button>
+              <button type="button" onClick={() => onInputChange("画一个数据图表：")} title="生成图表">
+                <LineChart size={16} /> 图表
+              </button>
+              <button type="button" onClick={() => onInputChange("画一个思维导图：")} title="生成思维导图">
+                <Sparkles size={16} /> 导图
+              </button>
+              <button type="button" onClick={() => onInputChange("生成一个 1 分钟教学视频：")} title="生成教学视频">
+                <FileText size={16} /> 视频
+              </button>
+            </span>
             {isRecording && <span className="recording-label">正在录音（演示）</span>}
           </div>
           <button className="send-button" type="submit" disabled={!input.trim() || isLoading}>

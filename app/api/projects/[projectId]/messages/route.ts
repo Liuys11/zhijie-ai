@@ -14,6 +14,7 @@ type DbMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  metadata: Record<string, unknown>;
   created_at: string;
 };
 
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pro
     const conversation = await ensureConversation(auth.token, auth.user.id, projectId);
     const messages = await supabaseRest<DbMessage[]>(
       auth.token,
-      `messages?select=id,role,content,created_at&conversation_id=eq.${conversation.id}&order=created_at.asc`
+      `messages?select=id,role,content,metadata,created_at&conversation_id=eq.${conversation.id}&order=created_at.asc`
     );
 
     return NextResponse.json({
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pro
           id: message.id,
           role: message.role,
           content: message.content,
+          parts: Array.isArray(message.metadata?.parts) ? message.metadata.parts : undefined,
           time: new Intl.DateTimeFormat("zh-CN", {
             hour: "2-digit",
             minute: "2-digit"
