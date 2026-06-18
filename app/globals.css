@@ -1515,10 +1515,63 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
-.profile-error {
-  margin: 10px 0 0;
-  color: #d94854;
+.avatar-picker {
+  margin-bottom: 11px;
+}
+
+.avatar-picker > span {
+  height: 38px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #dce1ea;
+  border-radius: 10px;
+  color: #4b55c8;
+  background: #f7f7ff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.avatar-picker input {
+  display: none;
+}
+
+.avatar-clear {
+  margin: -3px 0 12px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
   font-size: 12px;
+  cursor: pointer;
+}
+
+.avatar-clear:hover {
+  color: var(--primary);
+}
+
+.profile-message {
+  margin: 10px 0 0;
+  padding: 10px 11px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.profile-message.error {
+  color: #d94854;
+  background: #fff0f1;
+}
+
+.profile-message.success {
+  color: #1f7a58;
+  background: #eaf8f3;
+}
+
+.profile-message.idle {
+  color: var(--muted);
+  background: #f6f8fb;
 }
 
 .modal-options {

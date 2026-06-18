@@ -10,7 +10,7 @@ import type { Message, Project, Resource, UserProfile, WorkspaceSection } from "
 import { formatFileSize, nowLabel } from "./learning-workspace/utils";
 import { WorkspaceHeader } from "./learning-workspace/workspace-header";
 import { WorkspaceSidebar } from "./learning-workspace/workspace-sidebar";
-import type { AuthSession } from "@/lib/supabase-browser";
+import { deleteAvatarFile, getAvatarPublicUrl, uploadAvatarFile, type AuthSession } from "@/lib/supabase-browser";
 
 type LearningWorkspaceProps = {
   session: AuthSession;
@@ -33,11 +33,40 @@ type ApiProfileResponse = {
   error?: string;
 };
 
+const allowedAvatarTypes = ["image/jpeg", "image/png", "image/webp"];
+const maxAvatarSize = 5 * 1024 * 1024;
+
 function profileFromEmail(email?: string): UserProfile {
   return {
     nickname: email?.split("@")[0] || "学习者",
-    avatarUrl: ""
+    avatarUrl: "",
+    avatarPath: ""
   };
+}
+
+function getAvatarExtension(file: File) {
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  return "jpg";
+}
+
+function getFriendlyProfileError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  console.error(error);
+
+  if (/Failed to fetch|NetworkError|Load failed|fetch/i.test(message)) {
+    return "网络连接失败，个人资料没有保存成功。请检查网络或稍后重试。";
+  }
+
+  if (/bucket|storage|row-level security|policy|permission|403|401/i.test(message)) {
+    return "头像上传权限不足，请确认 Supabase 已创建 avatars bucket 并执行 Storage 权限 SQL。";
+  }
+
+  if (/profiles|column|relation|schema/i.test(message)) {
+    return "个人资料表尚未配置，请先在 Supabase 执行 profile-migration.sql。";
+  }
+
+  return message || "个人资料保存失败，请稍后重试。";
 }
 
 export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps) {
@@ -60,8 +89,11 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("学习对话");
   const [profile, setProfile] = useState<UserProfile>(() => profileFromEmail(session.user.email));
   const [draftProfile, setDraftProfile] = useState<UserProfile>(() => profileFromEmail(session.user.email));
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+  const [previewAvatarUrl, setPreviewAvatarUrl] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
-  const [profileError, setProfileError] = useState("");
+  const [profileStatus, setProfileStatus] = useState<"idle" | "success" | "error">("idle");
+  const [profileMessage, setProfileMessage] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [highlightedMessageId, setHighlightedMessageId] = useState("");
@@ -186,6 +218,12 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (previewAvatarUrl) URL.revokeObjectURL(previewAvatarUrl);
+    };
+  }, [previewAvatarUrl]);
 
   const trackMessageScroll = () => {
     const messageList = messagesRef.current;
@@ -492,23 +530,94 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
   const openProfileSettings = () => {
     setDraftProfile(profile);
-    setProfileError("");
+    setSelectedAvatarFile(null);
+    if (previewAvatarUrl) URL.revokeObjectURL(previewAvatarUrl);
+    setPreviewAvatarUrl("");
+    setProfileStatus("idle");
+    setProfileMessage("");
     setProfileOpen(true);
+  };
+
+  const closeProfileSettings = () => {
+    if (previewAvatarUrl) URL.revokeObjectURL(previewAvatarUrl);
+    setSelectedAvatarFile(null);
+    setPreviewAvatarUrl("");
+    setProfileOpen(false);
+  };
+
+  const selectAvatarFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    setProfileStatus("idle");
+    setProfileMessage("");
+
+    if (!file) return;
+
+    if (!allowedAvatarTypes.includes(file.type)) {
+      setProfileStatus("error");
+      setProfileMessage("请选择 JPG、PNG 或 WebP 图片。");
+      return;
+    }
+
+    if (file.size > maxAvatarSize) {
+      setProfileStatus("error");
+      setProfileMessage("头像图片不能超过 5MB。");
+      return;
+    }
+
+    if (previewAvatarUrl) URL.revokeObjectURL(previewAvatarUrl);
+    setSelectedAvatarFile(file);
+    setPreviewAvatarUrl(URL.createObjectURL(file));
+  };
+
+  const clearSelectedAvatar = () => {
+    if (previewAvatarUrl) URL.revokeObjectURL(previewAvatarUrl);
+    setSelectedAvatarFile(null);
+    setPreviewAvatarUrl("");
+    setProfileStatus("idle");
+    setProfileMessage("");
   };
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
+    if (profileSaving) return;
+
+    const nickname = draftProfile.nickname.trim();
+    if (nickname.length < 2 || nickname.length > 30) {
+      setProfileStatus("error");
+      setProfileMessage("昵称长度需要在 2 到 30 个字符之间。");
+      return;
+    }
+
     setProfileSaving(true);
-    setProfileError("");
+    setProfileStatus("idle");
+    setProfileMessage("保存中...");
+
+    let uploadedAvatarPath = "";
 
     try {
+      let nextAvatarUrl = draftProfile.avatarUrl;
+      let nextAvatarPath = draftProfile.avatarPath;
+
+      if (selectedAvatarFile) {
+        const nextPath = `${session.user.id}/avatar-${Date.now()}.${getAvatarExtension(selectedAvatarFile)}`;
+        await uploadAvatarFile(session.access_token, nextPath, selectedAvatarFile);
+        uploadedAvatarPath = nextPath;
+        nextAvatarPath = nextPath;
+        nextAvatarUrl = getAvatarPublicUrl(nextPath);
+      }
+
       const response = await fetch("/api/profile", {
         method: "PATCH",
         headers: {
           ...authHeaders,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(draftProfile)
+        body: JSON.stringify({
+          nickname,
+          avatarUrl: nextAvatarUrl,
+          avatarPath: nextAvatarPath
+        })
       });
       const data = (await response.json()) as ApiProfileResponse;
       if (response.status === 401) {
@@ -516,11 +625,22 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         return;
       }
       if (!response.ok || !data.profile) throw new Error(data.error || "个人资料保存失败");
+
+      if (selectedAvatarFile && profile.avatarPath && profile.avatarPath !== data.profile.avatarPath) {
+        void deleteAvatarFile(session.access_token, profile.avatarPath).catch((error) => console.warn("旧头像删除失败", error));
+      }
+
       setProfile(data.profile);
       setDraftProfile(data.profile);
-      setProfileOpen(false);
+      clearSelectedAvatar();
+      setProfileStatus("success");
+      setProfileMessage("保存成功。");
     } catch (error) {
-      setProfileError(error instanceof Error ? error.message : "个人资料保存失败，请稍后重试。");
+      if (uploadedAvatarPath) {
+        void deleteAvatarFile(session.access_token, uploadedAvatarPath).catch((deleteError) => console.warn("新头像回滚删除失败", deleteError));
+      }
+      setProfileStatus("error");
+      setProfileMessage(getFriendlyProfileError(error));
     } finally {
       setProfileSaving(false);
     }
@@ -635,11 +755,16 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       {profileOpen && (
         <ProfileModal
           draftProfile={draftProfile}
+          previewAvatarUrl={previewAvatarUrl}
+          selectedAvatarName={selectedAvatarFile?.name || ""}
           isSaving={profileSaving}
-          error={profileError}
-          onClose={() => setProfileOpen(false)}
+          status={profileStatus}
+          error={profileMessage}
+          onClose={closeProfileSettings}
           onSubmit={saveProfile}
           onProfileChange={setDraftProfile}
+          onAvatarSelect={selectAvatarFile}
+          onAvatarClear={clearSelectedAvatar}
         />
       )}
     </main>

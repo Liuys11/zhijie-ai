@@ -5,6 +5,7 @@ type DbProfile = {
   user_id: string;
   nickname: string | null;
   avatar_url: string | null;
+  avatar_path: string | null;
   updated_at: string;
 };
 
@@ -19,12 +20,21 @@ function defaultNickname(email?: string) {
 function normalizeProfile(profile: DbProfile, email?: string) {
   return {
     nickname: profile.nickname || defaultNickname(email),
-    avatarUrl: profile.avatar_url || ""
+    avatarUrl: profile.avatar_url || "",
+    avatarPath: profile.avatar_path || ""
   };
 }
 
+function normalizeNickname(value: unknown, email?: string) {
+  if (typeof value !== "string") return defaultNickname(email);
+  return value.trim();
+}
+
 async function ensureProfile(token: string, userId: string, email?: string) {
-  const existing = await supabaseRest<DbProfile[]>(token, `profiles?select=user_id,nickname,avatar_url,updated_at&user_id=eq.${userId}&limit=1`);
+  const existing = await supabaseRest<DbProfile[]>(
+    token,
+    `profiles?select=user_id,nickname,avatar_url,avatar_path,updated_at&user_id=eq.${userId}&limit=1`
+  );
   if (existing[0]) return existing[0];
 
   const created = await supabaseRest<DbProfile[]>(token, "profiles", {
@@ -33,7 +43,8 @@ async function ensureProfile(token: string, userId: string, email?: string) {
     body: {
       user_id: userId,
       nickname: defaultNickname(email),
-      avatar_url: ""
+      avatar_url: "",
+      avatar_path: ""
     }
   });
 
@@ -61,9 +72,14 @@ export async function PATCH(request: NextRequest) {
     const auth = await requireUser(request);
     if ("status" in auth) return jsonError(auth.error, auth.status);
 
-    const body = (await request.json()) as { nickname?: string; avatarUrl?: string };
-    const nickname = body.nickname?.trim().slice(0, 32) || defaultNickname(auth.user.email);
-    const avatarUrl = body.avatarUrl?.trim().slice(0, 500) || "";
+    const body = (await request.json()) as { nickname?: unknown; avatarUrl?: unknown; avatarPath?: unknown };
+    const nickname = normalizeNickname(body.nickname, auth.user.email);
+    if (nickname.length < 2 || nickname.length > 30) {
+      return jsonError("昵称长度需要在 2 到 30 个字符之间。", 400);
+    }
+
+    const avatarUrl = typeof body.avatarUrl === "string" ? body.avatarUrl.trim().slice(0, 700) : "";
+    const avatarPath = typeof body.avatarPath === "string" ? body.avatarPath.trim().slice(0, 500) : "";
 
     await ensureProfile(auth.token, auth.user.id, auth.user.email);
     const updated = await supabaseRest<DbProfile[]>(auth.token, `profiles?user_id=eq.${auth.user.id}`, {
@@ -72,6 +88,7 @@ export async function PATCH(request: NextRequest) {
       body: {
         nickname,
         avatar_url: avatarUrl,
+        avatar_path: avatarPath,
         updated_at: new Date().toISOString()
       }
     });

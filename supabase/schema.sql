@@ -40,6 +40,7 @@ create table if not exists public.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   nickname text,
   avatar_url text,
+  avatar_path text,
   updated_at timestamptz not null default now()
 );
 

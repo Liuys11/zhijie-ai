@@ -26,6 +26,7 @@ export type Resource = {
 export type UserProfile = {
   nickname: string;
   avatarUrl: string;
+  avatarPath: string;
 };
 
 export type WorkspaceSection = "总览" | "学习对话" | "资料库" | "知识地图";

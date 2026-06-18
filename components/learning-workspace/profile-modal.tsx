@@ -1,20 +1,38 @@
-import { FormEvent, useState } from "react";
-import { UserRound, X } from "lucide-react";
+import { ChangeEvent, FormEvent, useState } from "react";
+import { ImagePlus, UserRound, X } from "lucide-react";
 import type { UserProfile } from "./types";
 
 type ProfileModalProps = {
   draftProfile: UserProfile;
+  previewAvatarUrl: string;
+  selectedAvatarName: string;
   isSaving: boolean;
+  status: "idle" | "success" | "error";
   error: string;
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
   onProfileChange: (profile: UserProfile) => void;
+  onAvatarSelect: (event: ChangeEvent<HTMLInputElement>) => void;
+  onAvatarClear: () => void;
 };
 
-export function ProfileModal({ draftProfile, isSaving, error, onClose, onSubmit, onProfileChange }: ProfileModalProps) {
+export function ProfileModal({
+  draftProfile,
+  previewAvatarUrl,
+  selectedAvatarName,
+  isSaving,
+  status,
+  error,
+  onClose,
+  onSubmit,
+  onProfileChange,
+  onAvatarSelect,
+  onAvatarClear
+}: ProfileModalProps) {
   const initial = (draftProfile.nickname || "学").slice(0, 1).toUpperCase();
   const [failedAvatarUrl, setFailedAvatarUrl] = useState("");
-  const showAvatarImage = draftProfile.avatarUrl && failedAvatarUrl !== draftProfile.avatarUrl;
+  const avatarUrl = previewAvatarUrl || draftProfile.avatarUrl;
+  const showAvatarImage = avatarUrl && failedAvatarUrl !== avatarUrl;
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -31,15 +49,29 @@ export function ProfileModal({ draftProfile, isSaving, error, onClose, onSubmit,
         <div className="profile-preview">
           {showAvatarImage ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={draftProfile.avatarUrl} alt="" onError={() => setFailedAvatarUrl(draftProfile.avatarUrl)} />
+            <img src={avatarUrl} alt="" onError={() => setFailedAvatarUrl(avatarUrl)} />
           ) : (
             <span>{initial}</span>
           )}
           <div>
             <strong>{draftProfile.nickname || "学习者"}</strong>
-            <small>{draftProfile.avatarUrl ? "使用图片头像" : "使用首字母头像"}</small>
+            <small>{selectedAvatarName || (draftProfile.avatarUrl ? "当前图片头像" : "使用首字母头像")}</small>
           </div>
         </div>
+
+        <label className="avatar-picker">
+          头像
+          <span>
+            <ImagePlus size={17} />
+            选择图片
+            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={onAvatarSelect} disabled={isSaving} />
+          </span>
+        </label>
+        {selectedAvatarName && (
+          <button className="avatar-clear" type="button" onClick={onAvatarClear} disabled={isSaving}>
+            取消本次选择
+          </button>
+        )}
 
         <label>
           昵称
@@ -47,20 +79,13 @@ export function ProfileModal({ draftProfile, isSaving, error, onClose, onSubmit,
             value={draftProfile.nickname}
             onChange={(event) => onProfileChange({ ...draftProfile, nickname: event.target.value })}
             placeholder="例如：雨山"
-            maxLength={32}
+            minLength={2}
+            maxLength={30}
+            disabled={isSaving}
           />
         </label>
 
-        <label>
-          头像 URL
-          <input
-            value={draftProfile.avatarUrl}
-            onChange={(event) => onProfileChange({ ...draftProfile, avatarUrl: event.target.value })}
-            placeholder="https://example.com/avatar.png"
-          />
-        </label>
-
-        {error && <p className="profile-error">{error}</p>}
+        {error && <p className={`profile-message ${status}`}>{error}</p>}
 
         <button className="modal-submit" type="submit" disabled={isSaving}>
           {isSaving ? "保存中..." : "保存资料"}

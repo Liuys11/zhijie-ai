@@ -86,3 +86,56 @@ export async function signUpWithPassword(email: string, password: string) {
 
   return data as AuthSession;
 }
+
+export function getAvatarPublicUrl(path: string, version = Date.now()) {
+  const config = getBrowserSupabaseConfig();
+  if (!config) throw new Error("Supabase 环境变量尚未配置。");
+
+  const normalizedPath = path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `${config.url}/storage/v1/object/public/avatars/${normalizedPath}?v=${version}`;
+}
+
+export async function uploadAvatarFile(token: string, path: string, file: File) {
+  const config = getBrowserSupabaseConfig();
+  if (!config) throw new Error("Supabase 环境变量尚未配置。");
+
+  const response = await fetch(`${config.url}/storage/v1/object/avatars/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": file.type,
+      "x-upsert": "true"
+    },
+    body: file
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `头像上传失败，状态码 ${response.status}`);
+  }
+}
+
+export async function deleteAvatarFile(token: string, path: string) {
+  const config = getBrowserSupabaseConfig();
+  if (!config) throw new Error("Supabase 环境变量尚未配置。");
+  if (!path) return;
+
+  const response = await fetch(`${config.url}/storage/v1/object/avatars`, {
+    method: "DELETE",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ prefixes: [path] })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `旧头像删除失败，状态码 ${response.status}`);
+  }
+}
