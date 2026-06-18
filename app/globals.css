@@ -511,6 +511,10 @@ textarea:focus-visible {
   gap: 9px;
 }
 
+.workspace-search {
+  position: relative;
+}
+
 .icon-button,
 .mode-selector > button {
   height: 40px;
@@ -524,6 +528,112 @@ textarea:focus-visible {
   width: 40px;
   display: grid;
   place-items: center;
+}
+
+.search-input-row {
+  width: min(330px, 42vw);
+  height: 40px;
+  padding: 0 8px 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+
+.search-input-row input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 12px;
+}
+
+.search-input-row button {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: #7c879b;
+  background: transparent;
+  cursor: pointer;
+}
+
+.search-input-row button:hover {
+  background: #f0f2f7;
+  color: var(--text);
+}
+
+.search-results {
+  width: min(360px, 76vw);
+  position: absolute;
+  right: 0;
+  top: 47px;
+  z-index: 35;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.search-results p {
+  margin: 0;
+  padding: 13px 11px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.search-results button {
+  width: 100%;
+  padding: 9px 10px;
+  display: grid;
+  gap: 3px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-results button:not(:disabled):hover {
+  background: var(--panel-soft);
+}
+
+.search-results button:disabled {
+  cursor: default;
+}
+
+.search-results span,
+.search-results small,
+.search-results em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-results span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.search-results small {
+  color: var(--primary);
+  font-size: 10px;
+}
+
+.search-results em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
 }
 
 .mode-selector {
@@ -744,6 +854,11 @@ textarea:focus-visible {
   color: #3c465b;
   font-size: 13px;
   line-height: 1.72;
+}
+
+.message.highlighted .message-bubble {
+  border-color: #bfc2f0;
+  box-shadow: 0 0 0 4px var(--primary-soft), 0 9px 22px rgba(91, 92, 226, 0.13);
 }
 
 .message.user .message-bubble {
@@ -1362,6 +1477,14 @@ textarea:focus-visible {
     padding-left: 66px;
   }
 
+  .header-actions {
+    gap: 7px;
+  }
+
+  .search-input-row {
+    width: min(300px, 48vw);
+  }
+
   .workspace-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1387,9 +1510,24 @@ textarea:focus-visible {
 
   .workspace-header p,
   .eyebrow,
-  .icon-button,
   .mode-selector svg:first-child {
     display: none;
+  }
+
+  .header-actions {
+    min-width: 0;
+  }
+
+  .workspace-search.open {
+    flex: 1;
+  }
+
+  .search-input-row {
+    width: 100%;
+  }
+
+  .search-results {
+    width: min(330px, calc(100vw - 26px));
   }
 
   .mode-selector > button {

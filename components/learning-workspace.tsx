@@ -44,13 +44,18 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("学习对话");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [highlightedMessageId, setHighlightedMessageId] = useState("");
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Record<string, HTMLElement | null>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) || projects[0],
@@ -123,12 +128,34 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     }
   }, [messages, isLoading]);
 
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
   const trackMessageScroll = () => {
     const messageList = messagesRef.current;
     if (!messageList) return;
 
     const distanceToBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
     shouldStickToBottomRef.current = distanceToBottom < 96;
+  };
+
+  const registerMessageRef = (messageId: string, node: HTMLElement | null) => {
+    messageRefs.current[messageId] = node;
+  };
+
+  const jumpToMessage = (messageId: string) => {
+    const messageNode = messageRefs.current[messageId];
+    if (!messageNode) return;
+
+    shouldStickToBottomRef.current = false;
+    messageNode.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(messageId);
+
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(""), 1800);
   };
 
   const addFiles = (event: ChangeEvent<HTMLInputElement>) => {
@@ -369,11 +396,22 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           mode={mode}
           modes={learningModes}
           isModeOpen={isModeOpen}
+          messages={messages}
+          resources={resources}
+          isSearchOpen={isSearchOpen}
+          searchQuery={searchQuery}
           onToggleModeMenu={() => setIsModeOpen((current) => !current)}
           onSelectMode={(selectedMode) => {
             setMode(selectedMode);
             setIsModeOpen(false);
           }}
+          onOpenSearch={() => setIsSearchOpen(true)}
+          onCloseSearch={() => {
+            setIsSearchOpen(false);
+            setSearchQuery("");
+          }}
+          onSearchQueryChange={setSearchQuery}
+          onSelectMessage={jumpToMessage}
         />
 
         <div className="workspace-grid">
@@ -390,7 +428,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
             imageInputRef={imageInputRef}
             messagesRef={messagesRef}
             bottomRef={bottomRef}
+            highlightedMessageId={highlightedMessageId}
             onMessagesScroll={trackMessageScroll}
+            onRegisterMessage={registerMessageRef}
             onInputChange={setInput}
             onSubmitMessage={submitMessage}
             onSendMessage={(text) => void sendMessage(text)}

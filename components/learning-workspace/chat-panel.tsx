@@ -25,7 +25,9 @@ type ChatPanelProps = {
   imageInputRef: RefObject<HTMLInputElement | null>;
   messagesRef: RefObject<HTMLDivElement | null>;
   bottomRef: RefObject<HTMLDivElement | null>;
+  highlightedMessageId: string;
   onMessagesScroll: () => void;
+  onRegisterMessage: (messageId: string, node: HTMLElement | null) => void;
   onInputChange: (value: string) => void;
   onSubmitMessage: (event: FormEvent) => void;
   onSendMessage: (text?: string) => void;
@@ -46,7 +48,9 @@ export function ChatPanel({
   imageInputRef,
   messagesRef,
   bottomRef,
+  highlightedMessageId,
   onMessagesScroll,
+  onRegisterMessage,
   onInputChange,
   onSubmitMessage,
   onSendMessage,
@@ -78,7 +82,11 @@ export function ChatPanel({
         </div>
 
         {messages.map((message) => (
-          <article className={`message ${message.role}`} key={message.id}>
+          <article
+            className={`message ${message.role} ${highlightedMessageId === message.id ? "highlighted" : ""}`}
+            key={message.id}
+            ref={(node) => onRegisterMessage(message.id, node)}
+          >
             <div className="message-avatar">{message.role === "assistant" ? <BrainCircuit size={18} /> : "鲍"}</div>
             <div className="message-content">
               <div className="message-meta">
