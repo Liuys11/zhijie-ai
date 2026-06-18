@@ -47,6 +47,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [highlightedMessageId, setHighlightedMessageId] = useState("");
+  const [deletingProjectId, setDeletingProjectId] = useState("");
+  const [deletingMessageId, setDeletingMessageId] = useState("");
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -351,6 +353,92 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     setMobileNavOpen(false);
   };
 
+  const reloadProjects = async () => {
+    const response = await fetch("/api/projects", {
+      headers: authHeaders
+    });
+    const data = (await response.json()) as ApiProjectsResponse;
+    if (response.status === 401) {
+      onSignOut();
+      return;
+    }
+    if (!response.ok || !data.projects?.length) throw new Error(data.error || "项目重新加载失败");
+
+    setProjects(data.projects);
+    setActiveProjectId(data.projects[0].id);
+    await loadMessages(data.projects[0]);
+  };
+
+  const deleteProject = async (projectId: string) => {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project || deletingProjectId) return;
+
+    const confirmed = window.confirm(`确定删除“${project.name}”吗？该项目内的对话、消息和资料都会一起删除。`);
+    if (!confirmed) return;
+
+    setDeletingProjectId(projectId);
+    setWorkspaceError("");
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+        headers: authHeaders
+      });
+      const data = (await response.json()) as { error?: string };
+      if (response.status === 401) {
+        onSignOut();
+        return;
+      }
+      if (!response.ok) throw new Error(data.error || "项目删除失败");
+
+      const remainingProjects = projects.filter((item) => item.id !== projectId);
+      setProjects(remainingProjects);
+
+      if (activeProjectId !== projectId) return;
+
+      if (remainingProjects[0]) {
+        setActiveProjectId(remainingProjects[0].id);
+        await loadMessages(remainingProjects[0]);
+      } else {
+        await reloadProjects();
+      }
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "项目删除失败，请稍后重试。");
+    } finally {
+      setDeletingProjectId("");
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    if (!activeProject || deletingMessageId || isLoading) return;
+
+    const confirmed = window.confirm("确定删除这条消息吗？删除后无法恢复。");
+    if (!confirmed) return;
+
+    setDeletingMessageId(messageId);
+    setWorkspaceError("");
+
+    try {
+      const response = await fetch(`/api/projects/${activeProject.id}/messages/${messageId}`, {
+        method: "DELETE",
+        headers: authHeaders
+      });
+      const data = (await response.json()) as { error?: string };
+      if (response.status === 401) {
+        onSignOut();
+        return;
+      }
+      if (!response.ok) throw new Error(data.error || "消息删除失败");
+
+      setMessages((current) => current.filter((message) => message.id !== messageId));
+      if (highlightedMessageId === messageId) setHighlightedMessageId("");
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : "消息删除失败，请稍后重试。");
+    } finally {
+      setDeletingMessageId("");
+    }
+  };
+
   if (isBootstrapping) {
     return (
       <main className="app-shell loading-shell">
@@ -385,8 +473,10 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onOpenNewProject={() => setNewProjectOpen(true)}
         onSelectProject={changeProject}
+        onDeleteProject={(projectId) => void deleteProject(projectId)}
         onSelectSection={setActiveSection}
         userEmail={session.user.email || "已登录用户"}
+        deletingProjectId={deletingProjectId}
         onSignOut={onSignOut}
       />
 
@@ -429,8 +519,10 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
             messagesRef={messagesRef}
             bottomRef={bottomRef}
             highlightedMessageId={highlightedMessageId}
+            deletingMessageId={deletingMessageId}
             onMessagesScroll={trackMessageScroll}
             onRegisterMessage={registerMessageRef}
+            onDeleteMessage={(messageId) => void deleteMessage(messageId)}
             onInputChange={setInput}
             onSubmitMessage={submitMessage}
             onSendMessage={(text) => void sendMessage(text)}

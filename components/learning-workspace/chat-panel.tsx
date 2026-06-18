@@ -7,7 +7,8 @@ import {
   Lightbulb,
   Mic,
   Paperclip,
-  Send
+  Send,
+  Trash2
 } from "lucide-react";
 import type { Message, Project, Resource } from "./types";
 import { renderMessage } from "./utils";
@@ -26,8 +27,10 @@ type ChatPanelProps = {
   messagesRef: RefObject<HTMLDivElement | null>;
   bottomRef: RefObject<HTMLDivElement | null>;
   highlightedMessageId: string;
+  deletingMessageId: string;
   onMessagesScroll: () => void;
   onRegisterMessage: (messageId: string, node: HTMLElement | null) => void;
+  onDeleteMessage: (messageId: string) => void;
   onInputChange: (value: string) => void;
   onSubmitMessage: (event: FormEvent) => void;
   onSendMessage: (text?: string) => void;
@@ -49,8 +52,10 @@ export function ChatPanel({
   messagesRef,
   bottomRef,
   highlightedMessageId,
+  deletingMessageId,
   onMessagesScroll,
   onRegisterMessage,
+  onDeleteMessage,
   onInputChange,
   onSubmitMessage,
   onSendMessage,
@@ -92,6 +97,16 @@ export function ChatPanel({
               <div className="message-meta">
                 <strong>{message.role === "assistant" ? "知界 AI" : "我"}</strong>
                 <span>{message.time}</span>
+                <button
+                  type="button"
+                  className="message-delete"
+                  onClick={() => onDeleteMessage(message.id)}
+                  disabled={deletingMessageId === message.id}
+                  aria-label="删除这条消息"
+                  title="删除消息"
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
               <div className="message-bubble">{renderMessage(message.content)}</div>
             </div>

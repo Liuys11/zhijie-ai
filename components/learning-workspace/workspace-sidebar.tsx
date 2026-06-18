@@ -6,6 +6,7 @@ import {
   MessageCircle,
   LogOut,
   Plus,
+  Trash2,
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -27,8 +28,10 @@ type WorkspaceSidebarProps = {
   onOpenMobileNav: () => void;
   onOpenNewProject: () => void;
   onSelectProject: (projectId: string) => void;
+  onDeleteProject: (projectId: string) => void;
   onSelectSection: (section: WorkspaceSection) => void;
   userEmail: string;
+  deletingProjectId: string;
   onSignOut: () => void;
 };
 
@@ -41,8 +44,10 @@ export function WorkspaceSidebar({
   onOpenMobileNav,
   onOpenNewProject,
   onSelectProject,
+  onDeleteProject,
   onSelectSection,
   userEmail,
+  deletingProjectId,
   onSignOut
 }: WorkspaceSidebarProps) {
   const initial = userEmail.slice(0, 1).toUpperCase();
@@ -88,18 +93,28 @@ export function WorkspaceSidebar({
 
         <div className="project-list">
           {projects.map((project) => (
-            <button
+            <div
               key={project.id}
               className={`project-item ${project.id === activeProjectId ? "active" : ""}`}
-              onClick={() => onSelectProject(project.id)}
             >
-              <span className="project-emoji">{project.emoji}</span>
-              <span className="project-copy">
-                <strong>{project.name}</strong>
-                <small>{project.subject}</small>
-              </span>
+              <button className="project-select" onClick={() => onSelectProject(project.id)}>
+                <span className="project-emoji">{project.emoji}</span>
+                <span className="project-copy">
+                  <strong>{project.name}</strong>
+                  <small>{project.subject}</small>
+                </span>
+              </button>
               <span className="mini-progress">{project.progress}%</span>
-            </button>
+              <button
+                className="project-delete"
+                onClick={() => onDeleteProject(project.id)}
+                disabled={deletingProjectId === project.id}
+                aria-label={`删除${project.name}`}
+                title="删除项目"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           ))}
         </div>
 
