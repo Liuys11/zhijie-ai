@@ -9,6 +9,15 @@ export type Project = {
   conversationId?: string;
 };
 
+export type LearningStepStatus = "todo" | "doing" | "done";
+
+export type LearningStep = {
+  id: string;
+  title: string;
+  status: LearningStepStatus;
+  sortOrder: number;
+};
+
 export type Message = {
   id: string;
   role: "assistant" | "user";
@@ -21,6 +30,7 @@ export type Resource = {
   name: string;
   type: string;
   size: string;
+  storagePath?: string;
 };
 
 export type UserProfile = {

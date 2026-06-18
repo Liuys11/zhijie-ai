@@ -6,11 +6,11 @@ import { initialMessages, learningModes, suggestionPrompts } from "./learning-wo
 import { InsightPanel } from "./learning-workspace/insight-panel";
 import { NewProjectModal } from "./learning-workspace/new-project-modal";
 import { ProfileModal } from "./learning-workspace/profile-modal";
-import type { Message, Project, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
-import { formatFileSize, nowLabel } from "./learning-workspace/utils";
+import type { LearningStep, Message, Project, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
+import { nowLabel } from "./learning-workspace/utils";
 import { WorkspaceHeader } from "./learning-workspace/workspace-header";
 import { WorkspaceSidebar } from "./learning-workspace/workspace-sidebar";
-import { deleteAvatarFile, getAvatarPublicUrl, uploadAvatarFile, type AuthSession } from "@/lib/supabase-browser";
+import { deleteAvatarFile, deleteProjectFile, getAvatarPublicUrl, uploadAvatarFile, uploadProjectFile, type AuthSession } from "@/lib/supabase-browser";
 
 type LearningWorkspaceProps = {
   session: AuthSession;
@@ -33,8 +33,31 @@ type ApiProfileResponse = {
   error?: string;
 };
 
+type ProjectStats = {
+  done: number;
+  doing: number;
+  todo: number;
+  resources: number;
+  recentStudyAt: string;
+};
+
+type ApiProjectDetailsResponse = {
+  progress?: number;
+  steps?: LearningStep[];
+  resources?: Resource[];
+  stats?: ProjectStats;
+  error?: string;
+};
+
 const allowedAvatarTypes = ["image/jpeg", "image/png", "image/webp"];
 const maxAvatarSize = 5 * 1024 * 1024;
+const defaultProjectStats: ProjectStats = {
+  done: 0,
+  doing: 0,
+  todo: 0,
+  resources: 0,
+  recentStudyAt: ""
+};
 
 function profileFromEmail(email?: string): UserProfile {
   return {
@@ -48,6 +71,11 @@ function getAvatarExtension(file: File) {
   if (file.type === "image/png") return "png";
   if (file.type === "image/webp") return "webp";
   return "jpg";
+}
+
+function getSafeStorageName(name: string) {
+  const cleaned = name.replace(/[^\w.\-\u4e00-\u9fa5]+/g, "-").replace(/^-+|-+$/g, "");
+  return cleaned || `file-${Date.now()}`;
 }
 
 function getFriendlyProfileError(error: unknown) {
@@ -73,10 +101,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [resources, setResources] = useState<Resource[]>([
-    { id: "r1", name: "软件设计竞赛需求分析.pdf", type: "PDF", size: "2.4 MB" },
-    { id: "r2", name: "知界AI功能结构图.png", type: "图片", size: "860 KB" }
-  ]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [learningSteps, setLearningSteps] = useState<LearningStep[]>([]);
+  const [projectStats, setProjectStats] = useState<ProjectStats>(defaultProjectStats);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState(learningModes[0]);
   const [isModeOpen, setIsModeOpen] = useState(false);
@@ -99,6 +126,12 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [highlightedMessageId, setHighlightedMessageId] = useState("");
   const [deletingProjectId, setDeletingProjectId] = useState("");
   const [deletingMessageId, setDeletingMessageId] = useState("");
+  const [insightError, setInsightError] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [routeEditorOpen, setRouteEditorOpen] = useState(false);
+  const [savingSteps, setSavingSteps] = useState(false);
+  const [uploadingResource, setUploadingResource] = useState(false);
+  const [deletingResourceId, setDeletingResourceId] = useState("");
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -138,6 +171,25 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     setMessages(data.messages?.length ? data.messages : initialMessages);
   }, [authHeaders, onSignOut]);
 
+  const loadProjectDetails = useCallback(async (project: Project) => {
+    const response = await fetch(`/api/projects/${project.id}/details`, {
+      headers: authHeaders
+    });
+    const data = (await response.json()) as ApiProjectDetailsResponse;
+    if (response.status === 401) {
+      onSignOut();
+      return;
+    }
+    if (!response.ok) throw new Error(data.error || "项目详情加载失败");
+
+    setLearningSteps(data.steps || []);
+    setResources(data.resources || []);
+    setProjectStats(data.stats || defaultProjectStats);
+    if (typeof data.progress === "number") {
+      setProjects((current) => current.map((item) => (item.id === project.id ? { ...item, progress: data.progress as number } : item)));
+    }
+  }, [authHeaders, onSignOut]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -160,6 +212,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         setProjects(data.projects);
         setActiveProjectId(data.projects[0].id);
         await loadMessages(data.projects[0]);
+        await loadProjectDetails(data.projects[0]);
       } catch (error) {
         if (!cancelled) setWorkspaceError(error instanceof Error ? error.message : "工作台加载失败，请稍后重试。");
       } finally {
@@ -172,7 +225,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     return () => {
       cancelled = true;
     };
-  }, [authHeaders, loadMessages, onSignOut]);
+  }, [authHeaders, loadMessages, loadProjectDetails, onSignOut]);
 
   useEffect(() => {
     let cancelled = false;
@@ -253,16 +306,55 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
 
-    setResources((current) => [
-      ...files.map((file) => ({
-        id: `${file.name}-${file.lastModified}`,
-        name: file.name,
-        type: file.type.startsWith("image/") ? "图片" : file.name.split(".").pop()?.toUpperCase() || "文件",
-        size: formatFileSize(file.size)
-      })),
-      ...current
-    ]);
     event.target.value = "";
+
+    const run = async () => {
+      if (!activeProject) return;
+      setUploadingResource(true);
+      setInsightError("");
+
+      try {
+        for (const file of files) {
+          const storagePath = `${session.user.id}/${activeProject.id}/${Date.now()}-${getSafeStorageName(file.name)}`;
+          try {
+            await uploadProjectFile(session.access_token, storagePath, file);
+
+            const response = await fetch(`/api/projects/${activeProject.id}/documents`, {
+              method: "POST",
+              headers: {
+                ...authHeaders,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                name: file.name,
+                storagePath,
+                mimeType: file.type,
+                sizeBytes: file.size
+              })
+            });
+            const data = (await response.json()) as { resource?: Resource; error?: string };
+            if (response.status === 401) {
+              onSignOut();
+              return;
+            }
+            if (!response.ok || !data.resource) throw new Error(data.error || "资料保存失败");
+
+            setResources((current) => [data.resource as Resource, ...current]);
+            setProjectStats((current) => ({ ...current, resources: current.resources + 1, recentStudyAt: new Date().toISOString() }));
+          } catch (error) {
+            void deleteProjectFile(session.access_token, storagePath).catch((deleteError) => console.warn("资料上传回滚删除失败", deleteError));
+            throw error;
+          }
+        }
+      } catch (error) {
+        console.error(error);
+        setInsightError(error instanceof Error ? error.message : "资料上传失败，请稍后重试。");
+      } finally {
+        setUploadingResource(false);
+      }
+    };
+
+    void run();
   };
 
   const getFriendlyErrorMessage = (error: unknown) => {
@@ -438,6 +530,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       void loadMessages(project).catch((error) => {
         setWorkspaceError(error instanceof Error ? error.message : "消息记录加载失败。");
       });
+      void loadProjectDetails(project).catch((error) => {
+        setInsightError(error instanceof Error ? error.message : "项目详情加载失败。");
+      });
     }
     setMobileNavOpen(false);
   };
@@ -456,6 +551,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     setProjects(data.projects);
     setActiveProjectId(data.projects[0].id);
     await loadMessages(data.projects[0]);
+    await loadProjectDetails(data.projects[0]);
   };
 
   const deleteProject = async (projectId: string) => {
@@ -488,6 +584,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       if (remainingProjects[0]) {
         setActiveProjectId(remainingProjects[0].id);
         await loadMessages(remainingProjects[0]);
+        await loadProjectDetails(remainingProjects[0]);
       } else {
         await reloadProjects();
       }
@@ -525,6 +622,76 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       setWorkspaceError(error instanceof Error ? error.message : "消息删除失败，请稍后重试。");
     } finally {
       setDeletingMessageId("");
+    }
+  };
+
+  const saveLearningSteps = async (steps: LearningStep[]) => {
+    if (!activeProject || savingSteps) return;
+    setSavingSteps(true);
+    setInsightError("");
+
+    try {
+      const response = await fetch(`/api/projects/${activeProject.id}/steps`, {
+        method: "PUT",
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ steps })
+      });
+      const data = (await response.json()) as { steps?: LearningStep[]; progress?: number; error?: string };
+      if (response.status === 401) {
+        onSignOut();
+        return;
+      }
+      if (!response.ok || !data.steps || typeof data.progress !== "number") throw new Error(data.error || "学习路线保存失败");
+
+      setLearningSteps(data.steps);
+      setProjects((current) => current.map((project) => (project.id === activeProject.id ? { ...project, progress: data.progress as number } : project)));
+      setProjectStats((current) => ({
+        ...current,
+        done: data.steps?.filter((step) => step.status === "done").length || 0,
+        doing: data.steps?.filter((step) => step.status === "doing").length || 0,
+        todo: data.steps?.filter((step) => step.status === "todo").length || 0,
+        recentStudyAt: new Date().toISOString()
+      }));
+      setRouteEditorOpen(false);
+    } catch (error) {
+      console.error(error);
+      setInsightError(error instanceof Error ? error.message : "学习路线保存失败，请稍后重试。");
+    } finally {
+      setSavingSteps(false);
+    }
+  };
+
+  const deleteResource = async (resourceId: string) => {
+    if (!activeProject || deletingResourceId) return;
+    const resource = resources.find((item) => item.id === resourceId);
+    if (!resource) return;
+    if (!window.confirm(`确定删除“${resource.name}”吗？资料记录和文件都会被删除。`)) return;
+
+    setDeletingResourceId(resourceId);
+    setInsightError("");
+
+    try {
+      const response = await fetch(`/api/projects/${activeProject.id}/documents/${resourceId}`, {
+        method: "DELETE",
+        headers: authHeaders
+      });
+      const data = (await response.json()) as { error?: string };
+      if (response.status === 401) {
+        onSignOut();
+        return;
+      }
+      if (!response.ok) throw new Error(data.error || "资料删除失败");
+
+      setResources((current) => current.filter((item) => item.id !== resourceId));
+      setProjectStats((current) => ({ ...current, resources: Math.max(current.resources - 1, 0), recentStudyAt: new Date().toISOString() }));
+    } catch (error) {
+      console.error(error);
+      setInsightError(error instanceof Error ? error.message : "资料删除失败，请稍后重试。");
+    } finally {
+      setDeletingResourceId("");
     }
   };
 
@@ -739,7 +906,25 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
             onAddFiles={addFiles}
           />
 
-          <InsightPanel activeProject={activeProject} resources={resources} fileInputRef={fileInputRef} />
+          <InsightPanel
+            activeProject={activeProject}
+            resources={resources}
+            learningSteps={learningSteps}
+            stats={projectStats}
+            error={insightError}
+            detailsOpen={detailsOpen}
+            routeEditorOpen={routeEditorOpen}
+            savingSteps={savingSteps}
+            uploadingResource={uploadingResource}
+            deletingResourceId={deletingResourceId}
+            fileInputRef={fileInputRef}
+            onOpenDetails={() => setDetailsOpen(true)}
+            onCloseDetails={() => setDetailsOpen(false)}
+            onOpenRouteEditor={() => setRouteEditorOpen(true)}
+            onCloseRouteEditor={() => setRouteEditorOpen(false)}
+            onSaveSteps={(steps) => void saveLearningSteps(steps)}
+            onDeleteResource={(resourceId) => void deleteResource(resourceId)}
+          />
         </div>
       </section>
 

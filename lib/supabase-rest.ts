@@ -88,6 +88,28 @@ export async function supabaseRest<T>(
   return JSON.parse(responseText) as T;
 }
 
+export async function deleteStorageObject(token: string, bucket: string, path: string) {
+  const config = getSupabaseConfig();
+  if (!config) throw new Error("Supabase is not configured");
+  if (!path) return;
+
+  const response = await fetch(`${config.url}/storage/v1/object/${bucket}`, {
+    method: "DELETE",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ prefixes: [path] }),
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Storage delete failed with ${response.status}`);
+  }
+}
+
 export async function requireUser(request: NextRequest): Promise<AuthResult> {
   const token = getBearerToken(request);
   if (!token) return { error: "未登录或登录已过期", status: 401 as const };

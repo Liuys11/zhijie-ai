@@ -59,6 +59,17 @@ create table if not exists public.documents (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.learning_steps (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  status text not null default 'todo' check (status in ('todo', 'doing', 'done')),
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.document_chunks (
   id bigint generated always as identity primary key,
   document_id uuid not null references public.documents(id) on delete cascade,
@@ -102,6 +113,7 @@ create index if not exists projects_user_id_idx on public.projects(user_id);
 create index if not exists conversations_project_id_idx on public.conversations(project_id);
 create index if not exists messages_conversation_id_idx on public.messages(conversation_id, created_at);
 create index if not exists documents_project_id_idx on public.documents(project_id);
+create index if not exists learning_steps_project_id_idx on public.learning_steps(project_id, sort_order);
 create index if not exists chunks_project_id_idx on public.document_chunks(project_id);
 create index if not exists knowledge_nodes_project_id_idx on public.knowledge_nodes(project_id);
 
@@ -110,6 +122,7 @@ alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
 alter table public.profiles enable row level security;
 alter table public.documents enable row level security;
+alter table public.learning_steps enable row level security;
 alter table public.document_chunks enable row level security;
 alter table public.knowledge_nodes enable row level security;
 alter table public.knowledge_edges enable row level security;
@@ -123,6 +136,8 @@ create policy "users manage own messages" on public.messages
 create policy "users manage own profile" on public.profiles
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "users manage own documents" on public.documents
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "users manage own learning steps" on public.learning_steps
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "users manage own chunks" on public.document_chunks
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

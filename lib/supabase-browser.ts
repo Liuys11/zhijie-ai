@@ -139,3 +139,45 @@ export async function deleteAvatarFile(token: string, path: string) {
     throw new Error(errorText || `旧头像删除失败，状态码 ${response.status}`);
   }
 }
+
+export async function uploadProjectFile(token: string, path: string, file: File) {
+  const config = getBrowserSupabaseConfig();
+  if (!config) throw new Error("Supabase 环境变量尚未配置。");
+
+  const response = await fetch(`${config.url}/storage/v1/object/project-files/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": file.type || "application/octet-stream",
+      "x-upsert": "true"
+    },
+    body: file
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `项目资料上传失败，状态码 ${response.status}`);
+  }
+}
+
+export async function deleteProjectFile(token: string, path: string) {
+  const config = getBrowserSupabaseConfig();
+  if (!config) throw new Error("Supabase 环境变量尚未配置。");
+  if (!path) return;
+
+  const response = await fetch(`${config.url}/storage/v1/object/project-files`, {
+    method: "DELETE",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ prefixes: [path] })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `项目资料文件删除失败，状态码 ${response.status}`);
+  }
+}
