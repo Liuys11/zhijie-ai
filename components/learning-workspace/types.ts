@@ -56,6 +56,9 @@ export type MessagePart =
       prompt: string;
       status: "generating" | "completed" | "failed";
       error?: string;
+      taskId?: string;
+      taskStatus?: string;
+      provider?: string;
     }
   | {
       type: "video";

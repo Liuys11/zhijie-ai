@@ -12,6 +12,7 @@ import type { ChartOption, Message, MessagePart } from "./types";
 type MessageRendererProps = {
   message: Message;
   onSendMessage?: (text: string) => void;
+  onCheckImageStatus?: (message: Message) => void;
 };
 
 const markdownComponents: Components = {
@@ -256,7 +257,17 @@ function ChartPart({ option, title }: { option: ChartOption; title?: string }) {
   );
 }
 
-function MediaPlaceholder({ part, onSendMessage }: { part: MessagePart; onSendMessage?: (text: string) => void }) {
+function MediaPlaceholder({
+  message,
+  part,
+  onSendMessage,
+  onCheckImageStatus
+}: {
+  message: Message;
+  part: MessagePart;
+  onSendMessage?: (text: string) => void;
+  onCheckImageStatus?: (message: Message) => void;
+}) {
   if (part.type === "image") {
     const downloadImage = () => {
       if (!part.url) return;
@@ -276,6 +287,11 @@ function MediaPlaceholder({ part, onSendMessage }: { part: MessagePart; onSendMe
             <button type="button" onClick={() => onSendMessage?.(`重新生成图片：${part.prompt}`)}>
               <RefreshCw size={14} /> 重试
             </button>
+            {part.status === "generating" && part.taskId && (
+              <button type="button" onClick={() => onCheckImageStatus?.(message)}>
+                继续查询
+              </button>
+            )}
             <button type="button" onClick={() => onSendMessage?.(`请在这张图片描述基础上继续修改：${part.prompt}`)}>
               继续修改
             </button>
@@ -289,7 +305,7 @@ function MediaPlaceholder({ part, onSendMessage }: { part: MessagePart; onSendMe
           <img className="generated-image" src={part.url} alt={part.prompt} />
         ) : (
           <p className={part.status === "failed" ? "generated-error" : "generated-note"}>
-            {part.error || "图片生成服务尚未配置，暂时无法生成真实图片。"}
+            {part.error || (part.status === "generating" ? "图片正在生成中，请稍候。" : "图片生成服务尚未配置，暂时无法生成真实图片。")}
           </p>
         )}
       </div>
@@ -330,7 +346,7 @@ function MediaPlaceholder({ part, onSendMessage }: { part: MessagePart; onSendMe
   return null;
 }
 
-export function MessageRenderer({ message, onSendMessage }: MessageRendererProps) {
+export function MessageRenderer({ message, onSendMessage, onCheckImageStatus }: MessageRendererProps) {
   const parts = message.parts?.length ? message.parts : partsFromContent(message.content);
 
   return (
@@ -345,7 +361,15 @@ export function MessageRenderer({ message, onSendMessage }: MessageRendererProps
         if (part.type === "chart") {
           return <ChartPart key={index} option={part.option} title={part.title} />;
         }
-        return <MediaPlaceholder key={index} part={part} onSendMessage={onSendMessage} />;
+        return (
+          <MediaPlaceholder
+            key={index}
+            message={message}
+            part={part}
+            onSendMessage={onSendMessage}
+            onCheckImageStatus={onCheckImageStatus}
+          />
+        );
       })}
     </>
   );

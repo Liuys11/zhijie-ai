@@ -47,6 +47,15 @@ type ApiProjectDetailsResponse = {
 type ApiImageGenerationResponse = {
   conversationId?: string;
   message?: Message;
+  status?: "processing" | "completed";
+  taskId?: string;
+  error?: string;
+};
+
+type ApiImageStatusResponse = {
+  message?: Message;
+  status?: "waiting" | "processing" | "completed" | "failed";
+  taskStatus?: string;
   error?: string;
 };
 
@@ -59,6 +68,24 @@ const defaultProjectStats: ProjectStats = {
   resources: 0,
   recentStudyAt: ""
 };
+
+const imagePollIntervalMs = 3000;
+const imagePollMaxCount = 40;
+
+function getImageTaskFromMessage(message: Message) {
+  const imagePart = message.parts?.find((part) => part.type === "image" && part.taskId && part.status === "generating");
+  if (!imagePart || imagePart.type !== "image" || !imagePart.taskId) return null;
+
+  return {
+    taskId: imagePart.taskId,
+    prompt: imagePart.prompt,
+    taskStatus: imagePart.taskStatus
+  };
+}
+
+function replaceMessage(current: Message[], nextMessage: Message) {
+  return current.map((message) => (message.id === nextMessage.id ? nextMessage : message));
+}
 
 const sectionToSlug: Record<WorkspaceSection, string> = {
   "总览": "overview",
@@ -187,6 +214,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const bottomRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const imagePollingTasksRef = useRef<Set<string>>(new Set());
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) || projects[0],
@@ -428,6 +456,94 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     return message || "模型服务暂时不可用，请稍后再试。";
   };
 
+  const startImageStatusPolling = useCallback(
+    (message: Message, initialPollCount = 1) => {
+      if (!activeProject) return;
+
+      const task = getImageTaskFromMessage(message);
+      if (!task) return;
+
+      const pollingKey = message.id;
+      if (imagePollingTasksRef.current.has(pollingKey)) return;
+      imagePollingTasksRef.current.add(pollingKey);
+
+      const poll = async (currentMessage: Message, pollCount: number) => {
+        const currentTask = getImageTaskFromMessage(currentMessage);
+        if (!currentTask) {
+          imagePollingTasksRef.current.delete(pollingKey);
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/generate/image/status", {
+            method: "POST",
+            headers: {
+              ...authHeaders,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              projectId: activeProject.id,
+              messageId: currentMessage.id,
+              taskId: currentTask.taskId,
+              prompt: currentTask.prompt,
+              pollCount
+            })
+          });
+          const data = (await response.json()) as ApiImageStatusResponse;
+          if (response.status === 401) {
+            onSignOut();
+            return;
+          }
+          if (!response.ok || !data.message) throw new Error(data.error || "图片任务查询失败");
+
+          setMessages((current) => replaceMessage(current, data.message as Message));
+
+          if (data.status !== "completed" && pollCount < imagePollMaxCount) {
+            window.setTimeout(() => {
+              void poll(data.message as Message, pollCount + 1);
+            }, imagePollIntervalMs);
+            return;
+          }
+        } catch (error) {
+          const messageText = getFriendlyErrorMessage(error) || "图片任务查询失败，请稍后点击继续查询。";
+          setMessages((current) =>
+            current.map((item) => {
+              if (item.id !== currentMessage.id) return item;
+              return {
+                ...item,
+                content: messageText,
+                parts: item.parts?.map((part) =>
+                  part.type === "image"
+                    ? {
+                        ...part,
+                        status: "generating",
+                        error: messageText
+                      }
+                    : part
+                )
+              };
+            })
+          );
+        }
+
+        imagePollingTasksRef.current.delete(pollingKey);
+      };
+
+      void poll(message, initialPollCount);
+    },
+    [activeProject, authHeaders, onSignOut]
+  );
+
+  useEffect(() => {
+    if (!activeProject) return;
+
+    messages.forEach((message) => {
+      if (getImageTaskFromMessage(message)) {
+        startImageStatusPolling(message);
+      }
+    });
+  }, [activeProject, messages, startImageStatusPolling]);
+
   const sendMessage = async (text?: string) => {
     const messageText = (text ?? input).trim();
     if (!messageText || isLoading) return;
@@ -476,7 +592,11 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           );
         }
 
-        setMessages((current) => [...current, data.message as Message]);
+        const imageMessage = data.message as Message;
+        setMessages((current) => [...current, imageMessage]);
+        if (data.status === "processing") {
+          startImageStatusPolling(imageMessage);
+        }
         return;
       }
 
@@ -1063,6 +1183,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
               onInputChange={setInput}
               onSubmitMessage={submitMessage}
               onSendMessage={(text) => void sendMessage(text)}
+              onCheckImageStatus={(message) => startImageStatusPolling(message)}
               onToggleRecording={() => setIsRecording((current) => !current)}
             />
             {insightPanel}
