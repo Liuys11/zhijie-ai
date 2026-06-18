@@ -84,6 +84,9 @@ const wordCountByDuration: Record<VideoDurationOption, number> = {
   "90s": 220
 };
 
+const MAX_XFYUN_VIDEO_PROMPT_LENGTH = 300;
+const SAFE_XFYUN_VIDEO_PROMPT_LENGTH = 280;
+
 export function getVideoProviderConfig(): VideoProviderConfig | null {
   const provider = process.env.VIDEO_PROVIDER;
   if (provider !== "xfyun-avatar-video") return null;
@@ -121,7 +124,15 @@ function parsePositiveInt(value: string | undefined, fallback: number, min: numb
 }
 
 function clampWordCount(value: number) {
-  return Math.min(300, Math.max(50, Math.trunc(value)));
+  return Math.min(300, Math.max(50, Math.round(value)));
+}
+
+function getCharacterLength(value: string) {
+  return Array.from(value).length;
+}
+
+function truncatePrompt(value: string, maxLength = SAFE_XFYUN_VIDEO_PROMPT_LENGTH) {
+  return Array.from(value.trim()).slice(0, maxLength).join("");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -214,6 +225,7 @@ function formatHttpError(status: number, body: string) {
   if (status === 401 || /401|Unauthorized|signature/i.test(body)) return "讯飞视频鉴权失败，请检查 APP_ID、APIKey、APISecret。";
   if (/quota|余额|额度|insufficient/i.test(body)) return "讯飞视频免费额度不足或余额不足。";
   if (/not.*open|未开通|permission|forbidden|403/i.test(body)) return "讯飞数字人视频服务未开通或无权限。";
+  if (/prompt.*length|length.*300|less or equal than 300|超过.*300/i.test(body)) return "视频主题描述过长，系统正在压缩后重新提交。";
   if (/param|参数|invalid|schema/i.test(body)) return `讯飞视频请求参数错误：${body}`;
   return body || `讯飞数字人视频接口调用失败，状态码 ${status}`;
 }
@@ -229,6 +241,9 @@ function assertSuccess(response: Record<string, unknown>, stage: string) {
   if (code && code !== "0") {
     if (/quota|余额|额度/i.test(message)) throw new Error("讯飞视频免费额度不足或余额不足。");
     if (/未开通|权限|permission|forbidden/i.test(message)) throw new Error("讯飞数字人视频服务未开通或无权限。");
+    if (/prompt.*length|length.*300|less or equal than 300|超过.*300/i.test(message)) {
+      throw new Error("视频生成要求过于复杂，请简化主题后重试。");
+    }
     if (/param|参数|invalid|schema/i.test(message)) throw new Error(`讯飞视频请求参数错误：${message}`);
     throw new Error(`讯飞数字人视频${stage}失败：${message}`);
   }
@@ -291,16 +306,41 @@ function normalizeTaskStatus(taskStatus: string): XfyunVideoStatus {
   return "processing";
 }
 
-function buildPrompt(input: CreateVideoTaskInput) {
-  return [
-    "请生成一段适合大学生学习的数字人微课视频。",
-    `当前学习项目：${input.projectName}`,
-    `主题：${input.topic}`,
-    `预计时长：${durationLabel(input.duration)}`,
-    `难度：${input.difficulty}`,
-    `风格：${input.style}`,
-    "要求：语言清晰，先解释概念，再给出公式或例子，最后总结易错点。"
-  ].join("\n");
+function sanitizePromptText(value: string) {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/[{}[\]"'`*_#>|~]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactRepeatedText(value: string) {
+  const segments = value
+    .split(/[。！？!?；;，,]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  return Array.from(new Set(segments)).join("，") || value;
+}
+
+function buildXfyunVideoPrompt(input: CreateVideoTaskInput) {
+  const topic = truncatePrompt(compactRepeatedText(sanitizePromptText(input.topic)), 80);
+  if (!topic) throw new Error("视频主题不能为空");
+
+  const requirementMap: Record<VideoStyle, string[]> = {
+    知识讲解: ["讲清核心概念", "解释关键公式", "给出简单算例", "总结易错点"],
+    考前复习: ["突出考试重点", "梳理公式用法", "提示常见失误", "给出记忆线索"],
+    概念科普: ["用通俗语言解释", "联系生活例子", "避免堆砌术语", "总结直观理解"],
+    案例分析: ["结合具体场景", "说明解题步骤", "解释参数含义", "给出结论"]
+  };
+  const requirements = requirementMap[input.style].slice(0, 4).join("、");
+  const prompt = [
+    `请生成一段中文数字人教学视频，主题为${topic}。`,
+    `面向${input.difficulty}学习者，风格为${input.style}。`,
+    `${requirements}，表达简洁清晰。`
+  ].join("");
+
+  return truncatePrompt(prompt);
 }
 
 export function durationLabel(duration: VideoDurationOption) {
@@ -310,10 +350,22 @@ export function durationLabel(duration: VideoDurationOption) {
 }
 
 function buildGenerateBody(config: VideoProviderConfig, input: CreateVideoTaskInput): XfyunVideoGenerateRequest {
-  const prompt = buildPrompt(input).trim();
+  const prompt = buildXfyunVideoPrompt(input).trim();
   if (!prompt) throw new Error("视频提示词不能为空。");
 
   const wordCount = clampWordCount(wordCountByDuration[input.duration]);
+  const promptLength = getCharacterLength(prompt);
+
+  console.info("[xfyun-video-prompt]", {
+    promptLength,
+    wordCount,
+    topicLength: getCharacterLength(input.topic)
+  });
+
+  if (promptLength > MAX_XFYUN_VIDEO_PROMPT_LENGTH) {
+    throw new Error(`数字人视频提示词超过300字符，当前长度：${promptLength}`);
+  }
+
   const body: XfyunVideoGenerateRequest = {
     header: {
       app_id: config.appId
@@ -330,7 +382,7 @@ function buildGenerateBody(config: VideoProviderConfig, input: CreateVideoTaskIn
     headerKeys: Object.keys(body.header),
     parameterKeys: Object.keys(body.parameter),
     avatarKeys: Object.keys(body.parameter.avatar),
-    promptLength: body.parameter.avatar.prompt.length,
+    promptLength,
     wordCount: body.parameter.avatar.word_count
   });
 
