@@ -359,7 +359,24 @@ function MediaPlaceholder({
           </p>
         )}
         {part.url ? (
-          <video className="generated-video" src={part.url} controls />
+          <>
+            <video className="generated-video" src={part.url} controls>
+              {part.subtitleUrl && (
+                <track
+                  kind="subtitles"
+                  srcLang="zh-CN"
+                  label="中文字幕"
+                  src={part.subtitleUrl}
+                  default
+                />
+              )}
+            </video>
+            {(part.subtitleUrl || part.subtitleMessage) && (
+              <p className={part.subtitleStatus === "failed" ? "generated-error" : "generated-note"}>
+                {part.subtitleUrl ? "字幕：已生成" : part.subtitleMessage}
+              </p>
+            )}
+          </>
         ) : (
           <p className={part.status === "failed" ? "generated-error" : "generated-note"}>
             {part.error || part.progressLabel || "微课视频任务结构已准备，视频生成服务尚未配置。"}

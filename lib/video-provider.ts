@@ -45,6 +45,8 @@ export type XfyunVideoQueryResult = {
   imageUrl?: string;
   audioUrl?: string;
   bgmUrl?: string;
+  audioDurationSeconds?: number;
+  videoDurationSeconds?: number;
 };
 
 type XfyunVideoGenerateRequest = {
@@ -321,6 +323,46 @@ function extractUrlFromPayload(response: Record<string, unknown>, key: "image" |
   return "";
 }
 
+function findDuration(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value > 1000 ? value / 1000 : value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed > 1000 ? parsed / 1000 : parsed;
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const duration = findDuration(item);
+      if (duration) return duration;
+    }
+    return undefined;
+  }
+
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  for (const key of ["duration", "duration_seconds", "durationSeconds", "duration_ms", "durationMs", "audio_duration", "video_duration", "time"]) {
+    const duration = findDuration(record[key]);
+    if (duration) return duration;
+  }
+
+  for (const item of Object.values(record)) {
+    const duration = findDuration(item);
+    if (duration) return duration;
+  }
+
+  return undefined;
+}
+
+function getPayloadDuration(response: Record<string, unknown>, key: "audio" | "video") {
+  const payload = asRecord(response.payload);
+  return findDuration(payload?.[key]);
+}
+
 function findUrl(value: unknown): string {
   if (typeof value === "string") return /^https?:\/\//i.test(value) ? value : "";
   if (Array.isArray(value)) {
@@ -481,6 +523,8 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
   const textPayload = readPayloadValue(response.data, "text");
   const videoPayload = readPayloadValue(response.data, "video");
   const videoUrl = extractUrlFromPayload(response.data, "video");
+  const audioDurationSeconds = getPayloadDuration(response.data, "audio");
+  const videoDurationSeconds = getPayloadDuration(response.data, "video");
 
   console.info("[xfyun-video-query]", {
     httpStatus: response.status,
@@ -491,6 +535,8 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
     videoPayloadKind: videoPayload.kind,
     videoTextLength: videoPayload.textLength,
     hasVideoUrl: Boolean(videoUrl),
+    audioDurationSeconds,
+    videoDurationSeconds,
     taskId: maskTaskId(taskId)
   });
 
@@ -517,7 +563,9 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
       script: textPayload.value || undefined,
       imageUrl: extractUrlFromPayload(response.data, "image") || undefined,
       audioUrl: extractUrlFromPayload(response.data, "audio") || undefined,
-      bgmUrl: extractUrlFromPayload(response.data, "bgm") || undefined
+      bgmUrl: extractUrlFromPayload(response.data, "bgm") || undefined,
+      audioDurationSeconds,
+      videoDurationSeconds
     };
   }
 
@@ -531,6 +579,8 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
     script: textPayload.value || undefined,
     imageUrl: extractUrlFromPayload(response.data, "image") || undefined,
     audioUrl: extractUrlFromPayload(response.data, "audio") || undefined,
-    bgmUrl: extractUrlFromPayload(response.data, "bgm") || undefined
+    bgmUrl: extractUrlFromPayload(response.data, "bgm") || undefined,
+    audioDurationSeconds,
+    videoDurationSeconds
   };
 }
