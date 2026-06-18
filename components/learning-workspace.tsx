@@ -5,7 +5,8 @@ import { ChatPanel } from "./learning-workspace/chat-panel";
 import { initialMessages, learningModes, suggestionPrompts } from "./learning-workspace/data";
 import { InsightPanel } from "./learning-workspace/insight-panel";
 import { NewProjectModal } from "./learning-workspace/new-project-modal";
-import type { Message, Project, Resource, WorkspaceSection } from "./learning-workspace/types";
+import { ProfileModal } from "./learning-workspace/profile-modal";
+import type { Message, Project, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
 import { formatFileSize, nowLabel } from "./learning-workspace/utils";
 import { WorkspaceHeader } from "./learning-workspace/workspace-header";
 import { WorkspaceSidebar } from "./learning-workspace/workspace-sidebar";
@@ -27,6 +28,18 @@ type ApiMessagesResponse = {
   error?: string;
 };
 
+type ApiProfileResponse = {
+  profile?: UserProfile;
+  error?: string;
+};
+
+function profileFromEmail(email?: string): UserProfile {
+  return {
+    nickname: email?.split("@")[0] || "学习者",
+    avatarUrl: ""
+  };
+}
+
 export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
@@ -42,8 +55,13 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [isRecording, setIsRecording] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("学习对话");
+  const [profile, setProfile] = useState<UserProfile>(() => profileFromEmail(session.user.email));
+  const [draftProfile, setDraftProfile] = useState<UserProfile>(() => profileFromEmail(session.user.email));
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [highlightedMessageId, setHighlightedMessageId] = useState("");
@@ -123,6 +141,39 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       cancelled = true;
     };
   }, [authHeaders, loadMessages, onSignOut]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProfile = async () => {
+      try {
+        const response = await fetch("/api/profile", {
+          headers: authHeaders
+        });
+        const data = (await response.json()) as ApiProfileResponse;
+        if (response.status === 401) {
+          onSignOut();
+          return;
+        }
+        if (!response.ok || !data.profile) throw new Error(data.error || "个人资料加载失败");
+        if (cancelled) return;
+        setProfile(data.profile);
+        setDraftProfile(data.profile);
+      } catch {
+        if (!cancelled) {
+          const fallbackProfile = profileFromEmail(session.user.email);
+          setProfile(fallbackProfile);
+          setDraftProfile(fallbackProfile);
+        }
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authHeaders, onSignOut, session.user.email]);
 
   useEffect(() => {
     if (shouldStickToBottomRef.current) {
@@ -320,7 +371,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           {
             id: crypto.randomUUID(),
             role: "assistant",
-            content: `“${name}”项目已经创建。你可以直接提出第一个问题，也可以补充学习目标、时间安排或已有资料，我会据此生成项目制学习路线。`,
+            content: `“${name}”项目已经创建。你可以直接提出第一个问题，也可以补充学习目标、时间安排或已有资料，我会据此生成专属学习路线。`,
             time: "刚刚"
           }
         ]);
@@ -439,6 +490,42 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     }
   };
 
+  const openProfileSettings = () => {
+    setDraftProfile(profile);
+    setProfileError("");
+    setProfileOpen(true);
+  };
+
+  const saveProfile = async (event: FormEvent) => {
+    event.preventDefault();
+    setProfileSaving(true);
+    setProfileError("");
+
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(draftProfile)
+      });
+      const data = (await response.json()) as ApiProfileResponse;
+      if (response.status === 401) {
+        onSignOut();
+        return;
+      }
+      if (!response.ok || !data.profile) throw new Error(data.error || "个人资料保存失败");
+      setProfile(data.profile);
+      setDraftProfile(data.profile);
+      setProfileOpen(false);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : "个人资料保存失败，请稍后重试。");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   if (isBootstrapping) {
     return (
       <main className="app-shell loading-shell">
@@ -476,7 +563,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         onDeleteProject={(projectId) => void deleteProject(projectId)}
         onSelectSection={setActiveSection}
         userEmail={session.user.email || "已登录用户"}
+        profile={profile}
         deletingProjectId={deletingProjectId}
+        onOpenProfile={openProfileSettings}
         onSignOut={onSignOut}
       />
 
@@ -540,6 +629,17 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           onClose={() => setNewProjectOpen(false)}
           onSubmit={createProject}
           onNameChange={setNewProjectName}
+        />
+      )}
+
+      {profileOpen && (
+        <ProfileModal
+          draftProfile={draftProfile}
+          isSaving={profileSaving}
+          error={profileError}
+          onClose={() => setProfileOpen(false)}
+          onSubmit={saveProfile}
+          onProfileChange={setDraftProfile}
         />
       )}
     </main>

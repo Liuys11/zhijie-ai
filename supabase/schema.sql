@@ -36,6 +36,13 @@ create table if not exists public.messages (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  nickname text,
+  avatar_url text,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.documents (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,
@@ -100,6 +107,7 @@ create index if not exists knowledge_nodes_project_id_idx on public.knowledge_no
 alter table public.projects enable row level security;
 alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
+alter table public.profiles enable row level security;
 alter table public.documents enable row level security;
 alter table public.document_chunks enable row level security;
 alter table public.knowledge_nodes enable row level security;
@@ -110,6 +118,8 @@ create policy "users manage own projects" on public.projects
 create policy "users manage own conversations" on public.conversations
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "users manage own messages" on public.messages
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "users manage own profile" on public.profiles
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "users manage own documents" on public.documents
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

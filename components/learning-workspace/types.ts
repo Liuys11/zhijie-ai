@@ -23,6 +23,11 @@ export type Resource = {
   size: string;
 };
 
+export type UserProfile = {
+  nickname: string;
+  avatarUrl: string;
+};
+
 export type WorkspaceSection = "总览" | "学习对话" | "资料库" | "知识地图";
 
 export type FileInputRef = RefObject<HTMLInputElement | null>;

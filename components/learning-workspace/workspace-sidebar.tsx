@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   BrainCircuit,
   FolderOpen,
@@ -10,7 +11,7 @@ import {
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { Project, WorkspaceSection } from "./types";
+import type { Project, UserProfile, WorkspaceSection } from "./types";
 
 const navItems: Array<[WorkspaceSection, LucideIcon]> = [
   ["总览", LayoutDashboard],
@@ -18,6 +19,20 @@ const navItems: Array<[WorkspaceSection, LucideIcon]> = [
   ["资料库", FolderOpen],
   ["知识地图", BrainCircuit]
 ];
+
+function ProfileAvatar({ profile, initial }: { profile: UserProfile; initial: string }) {
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState("");
+  const showAvatarImage = profile.avatarUrl && failedAvatarUrl !== profile.avatarUrl;
+
+  if (showAvatarImage) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={profile.avatarUrl} alt="" onError={() => setFailedAvatarUrl(profile.avatarUrl)} />
+    );
+  }
+
+  return <>{initial}</>;
+}
 
 type WorkspaceSidebarProps = {
   activeSection: WorkspaceSection;
@@ -31,7 +46,9 @@ type WorkspaceSidebarProps = {
   onDeleteProject: (projectId: string) => void;
   onSelectSection: (section: WorkspaceSection) => void;
   userEmail: string;
+  profile: UserProfile;
   deletingProjectId: string;
+  onOpenProfile: () => void;
   onSignOut: () => void;
 };
 
@@ -47,10 +64,13 @@ export function WorkspaceSidebar({
   onDeleteProject,
   onSelectSection,
   userEmail,
+  profile,
   deletingProjectId,
+  onOpenProfile,
   onSignOut
 }: WorkspaceSidebarProps) {
-  const initial = userEmail.slice(0, 1).toUpperCase();
+  const displayName = profile.nickname || userEmail.split("@")[0] || "学习者";
+  const initial = displayName.slice(0, 1).toUpperCase();
 
   return (
     <>
@@ -65,7 +85,7 @@ export function WorkspaceSidebar({
           </div>
           <div>
             <strong>知界 AI</strong>
-            <span>智能学习空间</span>
+            <span>学习成长空间</span>
           </div>
           <button className="mobile-close" onClick={onCloseMobileNav} aria-label="关闭导航">
             <X size={18} />
@@ -119,11 +139,15 @@ export function WorkspaceSidebar({
         </div>
 
         <div className="sidebar-footer">
-          <div className="avatar">{initial}</div>
-          <div>
-            <strong>{userEmail}</strong>
-            <span>已登录 · 历史自动保存</span>
-          </div>
+          <button className="profile-trigger" onClick={onOpenProfile} title="编辑个人资料">
+            <span className="avatar">
+              <ProfileAvatar profile={profile} initial={initial} />
+            </span>
+            <span className="profile-copy">
+              <strong>{displayName}</strong>
+              <span>{userEmail}</span>
+            </span>
+          </button>
           <button className="sidebar-logout" onClick={onSignOut} aria-label="退出登录">
             <LogOut size={17} />
           </button>

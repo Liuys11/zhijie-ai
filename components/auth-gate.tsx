@@ -59,7 +59,7 @@ export function AuthGate() {
 
         <div className="auth-copy">
           <span>{mode === "login" ? "账号登录" : "创建账号"}</span>
-          <h1>{mode === "login" ? "继续你的项目制学习空间" : "注册后开始使用知界 AI"}</h1>
+          <h1>{mode === "login" ? "继续你的专属学习空间" : "注册后开始使用知界 AI"}</h1>
           <p>当前版本已取消游客模式。每个账号拥有独立项目、对话记录和学习进度。</p>
         </div>
 

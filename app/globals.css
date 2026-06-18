@@ -273,10 +273,70 @@ textarea:focus-visible {
   margin-top: auto;
   padding: 14px 5px 2px;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 20px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   align-items: center;
   gap: 9px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.profile-trigger {
+  min-width: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-trigger:hover .profile-copy strong {
+  color: white;
+}
+
+.profile-copy {
+  min-width: 0;
+}
+
+.profile-copy strong,
+.profile-copy span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.profile-copy strong {
+  color: #eef2ff;
+  font-size: 12px;
+}
+
+.profile-copy span {
+  margin-top: 3px;
+  color: #8f9bb2;
+  font-size: 9px;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  color: white;
+  background: linear-gradient(145deg, #6b6df0, #26344f);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .sidebar-logout {
@@ -473,32 +533,6 @@ textarea:focus-visible {
   border-radius: 11px;
   color: #ffffff;
   background: #5b5de8;
-}
-
-.avatar {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: white;
-  background: #35405a;
-  font-size: 13px;
-}
-
-.sidebar-footer strong,
-.sidebar-footer span {
-  display: block;
-}
-
-.sidebar-footer strong {
-  font-size: 12px;
-}
-
-.sidebar-footer span {
-  margin-top: 3px;
-  color: #7f8aa1;
-  font-size: 9px;
 }
 
 .workspace {
@@ -1434,6 +1468,57 @@ textarea:focus-visible {
   color: var(--text);
   background: #fbfcfe;
   font-weight: 400;
+}
+
+.profile-preview {
+  margin-bottom: 16px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #edf0f5;
+  border-radius: 13px;
+  background: #fafbfe;
+}
+
+.profile-preview > span,
+.profile-preview img {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  color: white;
+  background: linear-gradient(145deg, #6b6df0, #26344f);
+  font-size: 17px;
+  font-weight: 800;
+  object-fit: cover;
+}
+
+.profile-preview strong,
+.profile-preview small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.profile-preview strong {
+  font-size: 14px;
+}
+
+.profile-preview small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.profile-error {
+  margin: 10px 0 0;
+  color: #d94854;
+  font-size: 12px;
 }
 
 .modal-options {

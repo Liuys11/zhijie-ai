@@ -119,7 +119,7 @@ export function WorkspaceHeader({
     <header className="workspace-header">
       <div>
         <div className="eyebrow">
-          <Sparkles size={14} /> 项目制学习空间
+          <Sparkles size={14} /> 专属学习空间
         </div>
         <h1>{activeProject.name}</h1>
         <p>{activeProject.subject} · 已连续学习 4 天</p>
