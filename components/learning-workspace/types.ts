@@ -18,6 +18,14 @@ export type LearningStep = {
   sortOrder: number;
 };
 
+export type ProjectStats = {
+  done: number;
+  doing: number;
+  todo: number;
+  resources: number;
+  recentStudyAt: string;
+};
+
 export type Message = {
   id: string;
   role: "assistant" | "user";
@@ -31,6 +39,39 @@ export type Resource = {
   type: string;
   size: string;
   storagePath?: string;
+  category?: ResourceCategory;
+  status?: string;
+  createdAt?: string;
+  mimeType?: string;
+};
+
+export type ResourceCategory =
+  | "uploaded"
+  | "explanation"
+  | "exercise"
+  | "mindmap"
+  | "reading"
+  | "code";
+
+export type KnowledgeStatus = "mastered" | "learning" | "todo" | "weak";
+
+export type KnowledgeNode = {
+  id: string;
+  title: string;
+  description: string;
+  masteryScore: number;
+  confidence: number;
+  evidenceCount: number;
+  status: KnowledgeStatus;
+  lastReviewedAt: string;
+  nextReviewedAt: string;
+};
+
+export type KnowledgeEdge = {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  relation: string;
 };
 
 export type UserProfile = {

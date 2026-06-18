@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, RefObject } from "react";
+import { FormEvent, RefObject } from "react";
 import {
   BookOpen,
   BrainCircuit,
@@ -35,7 +35,6 @@ type ChatPanelProps = {
   onSubmitMessage: (event: FormEvent) => void;
   onSendMessage: (text?: string) => void;
   onToggleRecording: () => void;
-  onAddFiles: (event: ChangeEvent<HTMLInputElement>) => void;
 };
 
 export function ChatPanel({
@@ -59,8 +58,7 @@ export function ChatPanel({
   onInputChange,
   onSubmitMessage,
   onSendMessage,
-  onToggleRecording,
-  onAddFiles
+  onToggleRecording
 }: ChatPanelProps) {
   return (
     <section className="chat-panel">
@@ -179,8 +177,6 @@ export function ChatPanel({
             <Send size={17} />
           </button>
         </div>
-        <input ref={fileInputRef} type="file" multiple hidden onChange={onAddFiles} accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.csv,.xlsx" />
-        <input ref={imageInputRef} type="file" multiple hidden onChange={onAddFiles} accept="image/*" />
       </form>
       <p className="ai-note">AI 可能会出错，重要结论请结合课程资料与教师要求核对。</p>
     </section>

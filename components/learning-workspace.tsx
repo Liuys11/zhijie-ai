@@ -6,7 +6,8 @@ import { initialMessages, learningModes, suggestionPrompts } from "./learning-wo
 import { InsightPanel } from "./learning-workspace/insight-panel";
 import { NewProjectModal } from "./learning-workspace/new-project-modal";
 import { ProfileModal } from "./learning-workspace/profile-modal";
-import type { LearningStep, Message, Project, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
+import { KnowledgeMap, ProjectOverview, ResourceLibrary } from "./learning-workspace/project-modules";
+import type { KnowledgeEdge, KnowledgeNode, LearningStep, Message, Project, ProjectStats, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
 import { nowLabel } from "./learning-workspace/utils";
 import { WorkspaceHeader } from "./learning-workspace/workspace-header";
 import { WorkspaceSidebar } from "./learning-workspace/workspace-sidebar";
@@ -33,19 +34,13 @@ type ApiProfileResponse = {
   error?: string;
 };
 
-type ProjectStats = {
-  done: number;
-  doing: number;
-  todo: number;
-  resources: number;
-  recentStudyAt: string;
-};
-
 type ApiProjectDetailsResponse = {
   progress?: number;
   steps?: LearningStep[];
   resources?: Resource[];
   stats?: ProjectStats;
+  knowledgeNodes?: KnowledgeNode[];
+  knowledgeEdges?: KnowledgeEdge[];
   error?: string;
 };
 
@@ -58,6 +53,37 @@ const defaultProjectStats: ProjectStats = {
   resources: 0,
   recentStudyAt: ""
 };
+
+const sectionToSlug: Record<WorkspaceSection, string> = {
+  "总览": "overview",
+  "学习对话": "chat",
+  "资料库": "resources",
+  "知识地图": "knowledge-map"
+};
+
+const slugToSection: Record<string, WorkspaceSection> = {
+  overview: "总览",
+  chat: "学习对话",
+  resources: "资料库",
+  "knowledge-map": "知识地图"
+};
+
+function getRouteState() {
+  if (typeof window === "undefined") return { projectId: "", section: "学习对话" as WorkspaceSection };
+  const match = window.location.pathname.match(/^\/projects\/([^/]+)\/([^/]+)/);
+  return {
+    projectId: match?.[1] || "",
+    section: slugToSection[match?.[2] || ""] || ("学习对话" as WorkspaceSection)
+  };
+}
+
+function updateWorkspaceRoute(projectId: string, section: WorkspaceSection, replace = false) {
+  if (typeof window === "undefined" || !projectId) return;
+  const nextPath = `/projects/${projectId}/${sectionToSlug[section]}`;
+  if (window.location.pathname === nextPath) return;
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({}, "", nextPath);
+}
 
 function profileFromEmail(email?: string): UserProfile {
   return {
@@ -103,6 +129,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [resources, setResources] = useState<Resource[]>([]);
   const [learningSteps, setLearningSteps] = useState<LearningStep[]>([]);
+  const [knowledgeNodes, setKnowledgeNodes] = useState<KnowledgeNode[]>([]);
+  const [knowledgeEdges, setKnowledgeEdges] = useState<KnowledgeEdge[]>([]);
   const [projectStats, setProjectStats] = useState<ProjectStats>(defaultProjectStats);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState(learningModes[0]);
@@ -184,6 +212,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
     setLearningSteps(data.steps || []);
     setResources(data.resources || []);
+    setKnowledgeNodes(data.knowledgeNodes || []);
+    setKnowledgeEdges(data.knowledgeEdges || []);
     setProjectStats(data.stats || defaultProjectStats);
     if (typeof data.progress === "number") {
       setProjects((current) => current.map((item) => (item.id === project.id ? { ...item, progress: data.progress as number } : item)));
@@ -209,10 +239,19 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         if (!response.ok || !data.projects?.length) throw new Error(data.error || "项目加载失败");
         if (cancelled) return;
 
+        const routeState = getRouteState();
+        const requestedProject = routeState.projectId ? data.projects.find((project) => project.id === routeState.projectId) : undefined;
+        if (routeState.projectId && !requestedProject) {
+          throw new Error("项目不存在或无权访问，请先选择自己的学习项目。");
+        }
+        const initialProject = requestedProject || data.projects[0];
+
         setProjects(data.projects);
-        setActiveProjectId(data.projects[0].id);
-        await loadMessages(data.projects[0]);
-        await loadProjectDetails(data.projects[0]);
+        setActiveProjectId(initialProject.id);
+        setActiveSection(routeState.section);
+        updateWorkspaceRoute(initialProject.id, routeState.section, true);
+        await loadMessages(initialProject);
+        await loadProjectDetails(initialProject);
       } catch (error) {
         if (!cancelled) setWorkspaceError(error instanceof Error ? error.message : "工作台加载失败，请稍后重试。");
       } finally {
@@ -496,6 +535,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
         setProjects((current) => [data.project as Project, ...current]);
         setActiveProjectId(data.project.id);
+        updateWorkspaceRoute(data.project.id, activeSection);
         shouldStickToBottomRef.current = true;
         setMessages([
           {
@@ -518,6 +558,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const changeProject = (projectId: string) => {
     setActiveProjectId(projectId);
     const project = projects.find((item) => item.id === projectId);
+    updateWorkspaceRoute(projectId, activeSection);
     if (project) {
       setMessages([
         {
@@ -537,6 +578,12 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     setMobileNavOpen(false);
   };
 
+  const changeSection = (section: WorkspaceSection) => {
+    setActiveSection(section);
+    if (activeProject) updateWorkspaceRoute(activeProject.id, section);
+    setMobileNavOpen(false);
+  };
+
   const reloadProjects = async () => {
     const response = await fetch("/api/projects", {
       headers: authHeaders
@@ -550,6 +597,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
     setProjects(data.projects);
     setActiveProjectId(data.projects[0].id);
+    updateWorkspaceRoute(data.projects[0].id, activeSection, true);
     await loadMessages(data.projects[0]);
     await loadProjectDetails(data.projects[0]);
   };
@@ -583,6 +631,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
       if (remainingProjects[0]) {
         setActiveProjectId(remainingProjects[0].id);
+        updateWorkspaceRoute(remainingProjects[0].id, activeSection, true);
         await loadMessages(remainingProjects[0]);
         await loadProjectDetails(remainingProjects[0]);
       } else {
@@ -694,6 +743,41 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       setDeletingResourceId("");
     }
   };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const routeState = getRouteState();
+      if (!routeState.projectId) return;
+
+      const routeProject = projects.find((project) => project.id === routeState.projectId);
+      if (!routeProject) {
+        setWorkspaceError("项目不存在或无权访问，请先选择自己的学习项目。");
+        return;
+      }
+
+      setActiveSection(routeState.section);
+      if (routeProject.id !== activeProjectId) {
+        setActiveProjectId(routeProject.id);
+        setMessages([
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: "正在加载这个项目的历史消息...",
+            time: "加载中"
+          }
+        ]);
+        void loadMessages(routeProject).catch((error) => {
+          setWorkspaceError(error instanceof Error ? error.message : "消息记录加载失败。");
+        });
+        void loadProjectDetails(routeProject).catch((error) => {
+          setInsightError(error instanceof Error ? error.message : "项目详情加载失败。");
+        });
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [activeProjectId, loadMessages, loadProjectDetails, projects]);
 
   const openProfileSettings = () => {
     setDraftProfile(profile);
@@ -813,6 +897,11 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     }
   };
 
+  const startKnowledgeLearning = (title: string) => {
+    changeSection("学习对话");
+    setInput(`请围绕「${title}」帮我讲解核心概念、前置知识、常见误区，并给我 3 道练习题。`);
+  };
+
   if (isBootstrapping) {
     return (
       <main className="app-shell loading-shell">
@@ -836,6 +925,28 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     );
   }
 
+  const insightPanel = (
+    <InsightPanel
+      activeProject={activeProject}
+      resources={resources}
+      learningSteps={learningSteps}
+      stats={projectStats}
+      error={insightError}
+      detailsOpen={detailsOpen}
+      routeEditorOpen={routeEditorOpen}
+      savingSteps={savingSteps}
+      uploadingResource={uploadingResource}
+      deletingResourceId={deletingResourceId}
+      fileInputRef={fileInputRef}
+      onOpenDetails={() => setDetailsOpen(true)}
+      onCloseDetails={() => setDetailsOpen(false)}
+      onOpenRouteEditor={() => setRouteEditorOpen(true)}
+      onCloseRouteEditor={() => setRouteEditorOpen(false)}
+      onSaveSteps={(steps) => void saveLearningSteps(steps)}
+      onDeleteResource={(resourceId) => void deleteResource(resourceId)}
+    />
+  );
+
   return (
     <main className="app-shell">
       <WorkspaceSidebar
@@ -848,7 +959,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         onOpenNewProject={() => setNewProjectOpen(true)}
         onSelectProject={changeProject}
         onDeleteProject={(projectId) => void deleteProject(projectId)}
-        onSelectSection={setActiveSection}
+        onSelectSection={changeSection}
         userEmail={session.user.email || "已登录用户"}
         profile={profile}
         deletingProjectId={deletingProjectId}
@@ -880,52 +991,74 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           onSelectMessage={jumpToMessage}
         />
 
-        <div className="workspace-grid">
-          <ChatPanel
-            activeProject={activeProject}
-            resources={resources}
-            messages={messages}
-            input={input}
-            mode={mode}
-            isLoading={isLoading}
-            isRecording={isRecording}
-            suggestionPrompts={suggestionPrompts}
-            fileInputRef={fileInputRef}
-            imageInputRef={imageInputRef}
-            messagesRef={messagesRef}
-            bottomRef={bottomRef}
-            highlightedMessageId={highlightedMessageId}
-            deletingMessageId={deletingMessageId}
-            onMessagesScroll={trackMessageScroll}
-            onRegisterMessage={registerMessageRef}
-            onDeleteMessage={(messageId) => void deleteMessage(messageId)}
-            onInputChange={setInput}
-            onSubmitMessage={submitMessage}
-            onSendMessage={(text) => void sendMessage(text)}
-            onToggleRecording={() => setIsRecording((current) => !current)}
-            onAddFiles={addFiles}
-          />
-
-          <InsightPanel
-            activeProject={activeProject}
-            resources={resources}
-            learningSteps={learningSteps}
-            stats={projectStats}
-            error={insightError}
-            detailsOpen={detailsOpen}
-            routeEditorOpen={routeEditorOpen}
-            savingSteps={savingSteps}
-            uploadingResource={uploadingResource}
-            deletingResourceId={deletingResourceId}
-            fileInputRef={fileInputRef}
-            onOpenDetails={() => setDetailsOpen(true)}
-            onCloseDetails={() => setDetailsOpen(false)}
-            onOpenRouteEditor={() => setRouteEditorOpen(true)}
-            onCloseRouteEditor={() => setRouteEditorOpen(false)}
-            onSaveSteps={(steps) => void saveLearningSteps(steps)}
-            onDeleteResource={(resourceId) => void deleteResource(resourceId)}
-          />
-        </div>
+        {activeSection === "学习对话" ? (
+          <div className="workspace-grid">
+            <ChatPanel
+              activeProject={activeProject}
+              resources={resources}
+              messages={messages}
+              input={input}
+              mode={mode}
+              isLoading={isLoading}
+              isRecording={isRecording}
+              suggestionPrompts={suggestionPrompts}
+              fileInputRef={fileInputRef}
+              imageInputRef={imageInputRef}
+              messagesRef={messagesRef}
+              bottomRef={bottomRef}
+              highlightedMessageId={highlightedMessageId}
+              deletingMessageId={deletingMessageId}
+              onMessagesScroll={trackMessageScroll}
+              onRegisterMessage={registerMessageRef}
+              onDeleteMessage={(messageId) => void deleteMessage(messageId)}
+              onInputChange={setInput}
+              onSubmitMessage={submitMessage}
+              onSendMessage={(text) => void sendMessage(text)}
+              onToggleRecording={() => setIsRecording((current) => !current)}
+            />
+            {insightPanel}
+          </div>
+        ) : (
+          <div className="workspace-grid module-workspace-grid">
+            {activeSection === "总览" && (
+              <ProjectOverview
+                activeProject={activeProject}
+                resources={resources}
+                learningSteps={learningSteps}
+                stats={projectStats}
+                messages={messages}
+                knowledgeNodes={knowledgeNodes}
+                knowledgeEdges={knowledgeEdges}
+              />
+            )}
+            {activeSection === "资料库" && (
+              <ResourceLibrary
+                activeProject={activeProject}
+                resources={resources}
+                session={session}
+                uploadingResource={uploadingResource}
+                deletingResourceId={deletingResourceId}
+                fileInputRef={fileInputRef}
+                onDeleteResource={(resourceId) => void deleteResource(resourceId)}
+              />
+            )}
+            {activeSection === "知识地图" && (
+              <KnowledgeMap
+                activeProject={activeProject}
+                resources={resources}
+                learningSteps={learningSteps}
+                stats={projectStats}
+                messages={messages}
+                knowledgeNodes={knowledgeNodes}
+                knowledgeEdges={knowledgeEdges}
+                onStartKnowledge={startKnowledgeLearning}
+              />
+            )}
+            {insightPanel}
+          </div>
+        )}
+        <input ref={fileInputRef} type="file" multiple hidden onChange={addFiles} accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.csv,.xlsx" />
+        <input ref={imageInputRef} type="file" multiple hidden onChange={addFiles} accept="image/*" />
       </section>
 
       {newProjectOpen && (

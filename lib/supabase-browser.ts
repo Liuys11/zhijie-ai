@@ -181,3 +181,31 @@ export async function deleteProjectFile(token: string, path: string) {
     throw new Error(errorText || `项目资料文件删除失败，状态码 ${response.status}`);
   }
 }
+
+export async function createProjectFileSignedUrl(token: string, path: string) {
+  const config = getBrowserSupabaseConfig();
+  if (!config) throw new Error("Supabase 环境变量尚未配置。");
+  if (!path) throw new Error("资料文件路径为空，无法打开。");
+
+  const normalizedPath = path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  const response = await fetch(`${config.url}/storage/v1/object/sign/project-files/${normalizedPath}`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ expiresIn: 300 })
+  });
+
+  const data = (await response.json().catch(() => ({}))) as { signedURL?: string; error?: string; message?: string };
+  if (!response.ok || !data.signedURL) {
+    throw new Error(data.error || data.message || `资料链接生成失败，状态码 ${response.status}`);
+  }
+
+  return data.signedURL.startsWith("http") ? data.signedURL : `${config.url}/storage/v1${data.signedURL}`;
+}
