@@ -48,7 +48,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [workspaceError, setWorkspaceError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) || projects[0],
@@ -75,6 +77,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
     const conversationId = data.conversationId;
     setProjects((current) => current.map((item) => (item.id === project.id ? { ...item, conversationId } : item)));
+    shouldStickToBottomRef.current = true;
     setMessages(data.messages?.length ? data.messages : initialMessages);
   }, [authHeaders, onSignOut]);
 
@@ -115,8 +118,18 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   }, [authHeaders, loadMessages, onSignOut]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (shouldStickToBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, isLoading]);
+
+  const trackMessageScroll = () => {
+    const messageList = messagesRef.current;
+    if (!messageList) return;
+
+    const distanceToBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
+    shouldStickToBottomRef.current = distanceToBottom < 96;
+  };
 
   const addFiles = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -161,6 +174,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     };
 
     const history = messages.map(({ role, content }) => ({ role, content }));
+    shouldStickToBottomRef.current = true;
     setMessages((current) => [...current, userMessage]);
     setInput("");
     setIsLoading(true);
@@ -272,6 +286,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
         setProjects((current) => [data.project as Project, ...current]);
         setActiveProjectId(data.project.id);
+        shouldStickToBottomRef.current = true;
         setMessages([
           {
             id: crypto.randomUUID(),
@@ -373,7 +388,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
             suggestionPrompts={suggestionPrompts}
             fileInputRef={fileInputRef}
             imageInputRef={imageInputRef}
+            messagesRef={messagesRef}
             bottomRef={bottomRef}
+            onMessagesScroll={trackMessageScroll}
             onInputChange={setInput}
             onSubmitMessage={submitMessage}
             onSendMessage={(text) => void sendMessage(text)}

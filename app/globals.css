@@ -468,6 +468,7 @@ textarea:focus-visible {
 
 .workspace {
   min-width: 0;
+  min-height: 0;
   flex: 1;
 }
 
@@ -571,6 +572,7 @@ textarea:focus-visible {
 
 .workspace-grid {
   height: calc(100vh - 92px);
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 318px;
   overflow: hidden;
@@ -578,6 +580,7 @@ textarea:focus-visible {
 
 .chat-panel {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #fbfcfe;
@@ -617,7 +620,9 @@ textarea:focus-visible {
 
 .messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 22px clamp(20px, 5vw, 70px) 30px;
   scroll-behavior: smooth;
 }

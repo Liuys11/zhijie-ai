@@ -23,7 +23,9 @@ type ChatPanelProps = {
   suggestionPrompts: string[];
   fileInputRef: RefObject<HTMLInputElement | null>;
   imageInputRef: RefObject<HTMLInputElement | null>;
+  messagesRef: RefObject<HTMLDivElement | null>;
   bottomRef: RefObject<HTMLDivElement | null>;
+  onMessagesScroll: () => void;
   onInputChange: (value: string) => void;
   onSubmitMessage: (event: FormEvent) => void;
   onSendMessage: (text?: string) => void;
@@ -42,7 +44,9 @@ export function ChatPanel({
   suggestionPrompts,
   fileInputRef,
   imageInputRef,
+  messagesRef,
   bottomRef,
+  onMessagesScroll,
   onInputChange,
   onSubmitMessage,
   onSendMessage,
@@ -60,7 +64,7 @@ export function ChatPanel({
         <button>{mode}</button>
       </div>
 
-      <div className="messages" aria-live="polite">
+      <div className="messages" ref={messagesRef} onScroll={onMessagesScroll} aria-live="polite">
         <div className="welcome-card">
           <div className="welcome-icon">
             <Lightbulb size={22} />
