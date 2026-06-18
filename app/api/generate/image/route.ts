@@ -24,6 +24,8 @@ type ParsedBody = {
 
 const MAX_PROMPT_LENGTH = 1000;
 const GENERATED_IMAGES_BUCKET = "generated-images";
+const DUPLICATE_TASK_TTL_MS = 120000;
+const activeImageTasks = new Map<string, number>();
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
@@ -78,6 +80,22 @@ function buildImageParts(prompt: string, status: "completed" | "failed", url?: s
       error
     }
   ];
+}
+
+function getTaskKey(userId: string, projectId: string, prompt: string) {
+  return `${userId}:${projectId}:${prompt.trim().toLowerCase()}`;
+}
+
+function isDuplicateTask(taskKey: string) {
+  const startedAt = activeImageTasks.get(taskKey);
+  if (!startedAt) return false;
+
+  if (Date.now() - startedAt > DUPLICATE_TASK_TTL_MS) {
+    activeImageTasks.delete(taskKey);
+    return false;
+  }
+
+  return true;
 }
 
 async function ensureProjectAccess(token: string, projectId: string) {
@@ -182,6 +200,11 @@ export async function POST(request: NextRequest) {
     const project = await ensureProjectAccess(auth.token, parsedBody.projectId);
     if (!project) return jsonError("项目不存在或无权访问", 404);
 
+    const taskKey = getTaskKey(auth.user.id, parsedBody.projectId, parsedBody.prompt);
+    if (isDuplicateTask(taskKey)) {
+      return jsonError("同一张图片正在生成中，请等待当前任务完成后再试。", 429);
+    }
+
     const conversation = await ensureConversation(auth.token, auth.user.id, parsedBody.projectId, parsedBody.conversationId);
     await saveMessage(auth.token, auth.user.id, conversation.id, "user", buildUserContent(parsedBody.prompt), {
       parts: [{ type: "markdown", content: buildUserContent(parsedBody.prompt) }]
@@ -189,7 +212,7 @@ export async function POST(request: NextRequest) {
 
     const imageConfig = getImageProviderConfig();
     if (!imageConfig) {
-      const error = "图片生成服务尚未配置。请在 Vercel 环境变量中配置 IMAGE_API_KEY、IMAGE_BASE_URL 和 IMAGE_MODEL 后再试。";
+      const error = "图片生成服务尚未配置。使用讯飞 HiDream 时，请在 Vercel 配置 IMAGE_PROVIDER=xfyun-hidream 以及 XFYUN_HIDREAM_APP_ID、XFYUN_HIDREAM_API_KEY、XFYUN_HIDREAM_API_SECRET。";
       const parts = buildImageParts(parsedBody.prompt, "failed", undefined, undefined, error);
       const assistantMessage = await saveMessage(auth.token, auth.user.id, conversation.id, "assistant", error, { parts }, "image-unconfigured");
 
@@ -206,40 +229,45 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const generatedImage = await generateImage(parsedBody.prompt, imageConfig);
-    const extension = getExtension(generatedImage.mimeType);
-    const storagePath = `${auth.user.id}/${parsedBody.projectId}/image-${Date.now()}.${extension}`;
-    await uploadStorageObject(auth.token, GENERATED_IMAGES_BUCKET, storagePath, generatedImage.bytes, generatedImage.mimeType);
+    activeImageTasks.set(taskKey, Date.now());
+    try {
+      const generatedImage = await generateImage(parsedBody.prompt, imageConfig);
+      const extension = getExtension(generatedImage.mimeType);
+      const storagePath = `${auth.user.id}/${parsedBody.projectId}/image-${Date.now()}.${extension}`;
+      await uploadStorageObject(auth.token, GENERATED_IMAGES_BUCKET, storagePath, generatedImage.bytes, generatedImage.mimeType);
 
-    const publicUrl = `${getStoragePublicUrl(GENERATED_IMAGES_BUCKET, storagePath)}?v=${Date.now()}`;
-    const parts = buildImageParts(parsedBody.prompt, "completed", publicUrl, storagePath);
-    const content = `已根据你的描述生成教学图片：${parsedBody.prompt}`;
-    const assistantMessage = await saveMessage(auth.token, auth.user.id, conversation.id, "assistant", content, { parts }, generatedImage.model);
+      const publicUrl = `${getStoragePublicUrl(GENERATED_IMAGES_BUCKET, storagePath)}?v=${Date.now()}`;
+      const parts = buildImageParts(parsedBody.prompt, "completed", publicUrl, storagePath);
+      const content = `已根据你的描述生成教学图片：${parsedBody.prompt}`;
+      const assistantMessage = await saveMessage(auth.token, auth.user.id, conversation.id, "assistant", content, { parts }, generatedImage.model);
 
-    await saveGeneratedAsset(
-      auth.token,
-      auth.user.id,
-      parsedBody.projectId,
-      assistantMessage.id,
-      parsedBody.prompt,
-      storagePath,
-      publicUrl,
-      generatedImage.mimeType,
-      generatedImage.provider,
-      generatedImage.model
-    );
+      await saveGeneratedAsset(
+        auth.token,
+        auth.user.id,
+        parsedBody.projectId,
+        assistantMessage.id,
+        parsedBody.prompt,
+        storagePath,
+        publicUrl,
+        generatedImage.mimeType,
+        generatedImage.provider,
+        generatedImage.model
+      );
 
-    return NextResponse.json({
-      ok: true,
-      conversationId: conversation.id,
-      message: {
-        id: assistantMessage.id,
-        role: "assistant",
-        content,
-        parts,
-        time: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date())
-      }
-    });
+      return NextResponse.json({
+        ok: true,
+        conversationId: conversation.id,
+        message: {
+          id: assistantMessage.id,
+          role: "assistant",
+          content,
+          parts,
+          time: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date())
+        }
+      });
+    } finally {
+      activeImageTasks.delete(taskKey);
+    }
   } catch (error) {
     console.error(error);
     return jsonError(error instanceof Error ? error.message : "图片生成失败，请稍后重试。", 500);
