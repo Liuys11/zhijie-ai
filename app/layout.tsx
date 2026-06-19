@@ -3,7 +3,7 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "知界 AI｜跨学科智能学习空间",
+  title: "知界 AI｜智能学习平台",
   description: "面向课程、竞赛与自主探索的专属智能学习助手"
 };
 

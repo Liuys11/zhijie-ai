@@ -7,7 +7,7 @@ import { InsightPanel } from "./learning-workspace/insight-panel";
 import { NewProjectModal } from "./learning-workspace/new-project-modal";
 import { ProfileModal } from "./learning-workspace/profile-modal";
 import { KnowledgeMap, ProjectOverview, ResourceLibrary } from "./learning-workspace/project-modules";
-import type { KnowledgeEdge, KnowledgeNode, LearningStep, Message, Project, ProjectStats, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
+import type { Assessment, KnowledgeEdge, KnowledgeNode, LearningStep, Message, Project, ProjectStats, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
 import { nowLabel } from "./learning-workspace/utils";
 import { WorkspaceHeader } from "./learning-workspace/workspace-header";
 import { WorkspaceSidebar } from "./learning-workspace/workspace-sidebar";
@@ -36,11 +36,18 @@ type ApiProfileResponse = {
 
 type ApiProjectDetailsResponse = {
   progress?: number;
+  goal?: string;
+  weeklyMinutes?: number;
   steps?: LearningStep[];
   resources?: Resource[];
   stats?: ProjectStats;
   knowledgeNodes?: KnowledgeNode[];
   knowledgeEdges?: KnowledgeEdge[];
+  error?: string;
+};
+
+type ApiAssessmentResponse = {
+  assessment?: Assessment | null;
   error?: string;
 };
 
@@ -260,6 +267,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [knowledgeNodes, setKnowledgeNodes] = useState<KnowledgeNode[]>([]);
   const [knowledgeEdges, setKnowledgeEdges] = useState<KnowledgeEdge[]>([]);
   const [projectStats, setProjectStats] = useState<ProjectStats>(defaultProjectStats);
+  const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState(learningModes[0]);
   const [isModeOpen, setIsModeOpen] = useState(false);
@@ -269,6 +277,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectGoal, setNewProjectGoal] = useState("");
+  const [newProjectBaseline, setNewProjectBaseline] = useState("");
+  const [newProjectWeeklyMinutes, setNewProjectWeeklyMinutes] = useState(180);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("学习对话");
   const [profile, setProfile] = useState<UserProfile>(() => profileFromEmail(session.user.email));
   const [draftProfile, setDraftProfile] = useState<UserProfile>(() => profileFromEmail(session.user.email));
@@ -286,6 +297,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [routeEditorOpen, setRouteEditorOpen] = useState(false);
   const [savingSteps, setSavingSteps] = useState(false);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentError, setAssessmentError] = useState("");
   const [uploadingResource, setUploadingResource] = useState(false);
   const [deletingResourceId, setDeletingResourceId] = useState("");
   const [checkingVideoMessageIds, setCheckingVideoMessageIds] = useState<Set<string>>(() => new Set());
@@ -349,8 +362,37 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     setKnowledgeEdges(data.knowledgeEdges || []);
     setProjectStats(data.stats || defaultProjectStats);
     if (typeof data.progress === "number") {
-      setProjects((current) => current.map((item) => (item.id === project.id ? { ...item, progress: data.progress as number } : item)));
+      setProjects((current) =>
+        current.map((item) =>
+          item.id === project.id
+            ? {
+                ...item,
+                progress: data.progress as number,
+                goal: data.goal ?? item.goal,
+                weeklyMinutes: data.weeklyMinutes ?? item.weeklyMinutes
+              }
+            : item
+        )
+      );
     }
+  }, [authHeaders, onSignOut]);
+
+  const loadAssessment = useCallback(async (project: Project) => {
+    const response = await fetch(`/api/projects/${project.id}/assessments`, {
+      headers: authHeaders
+    });
+    const data = (await response.json()) as ApiAssessmentResponse;
+    if (response.status === 401) {
+      onSignOut();
+      return;
+    }
+    if (!response.ok) {
+      setAssessment(null);
+      setAssessmentError(data.error || "测评记录加载失败");
+      return;
+    }
+    setAssessment(data.assessment || null);
+    setAssessmentError("");
   }, [authHeaders, onSignOut]);
 
   useEffect(() => {
@@ -385,6 +427,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         updateWorkspaceRoute(initialProject.id, routeState.section, true);
         await loadMessages(initialProject);
         await loadProjectDetails(initialProject);
+        await loadAssessment(initialProject);
       } catch (error) {
         if (!cancelled) setWorkspaceError(error instanceof Error ? error.message : "工作台加载失败，请稍后重试。");
       } finally {
@@ -397,7 +440,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     return () => {
       cancelled = true;
     };
-  }, [authHeaders, loadMessages, loadProjectDetails, onSignOut]);
+  }, [authHeaders, loadMessages, loadProjectDetails, loadAssessment, onSignOut]);
 
   useEffect(() => {
     let cancelled = false;
@@ -868,6 +911,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     };
 
     const history = messages.map(({ role, content }) => ({ role, content }));
+    const currentStep = learningSteps.find((step) => step.status === "doing")?.title || learningSteps[0]?.title || "";
     shouldStickToBottomRef.current = true;
     setMessages((current) => [...current, userMessage]);
     setInput("");
@@ -965,8 +1009,11 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           projectId: activeProject.id,
           conversationId: activeProject.conversationId,
           projectName: activeProject.name,
+          projectGoal: activeProject.goal || "",
+          currentStep,
           mode,
           history,
+          steps: learningSteps.map(({ title, status }) => ({ title, status })),
           resources: resources.map(({ name, type }) => ({ name, type }))
         })
       });
@@ -1051,7 +1098,12 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
             ...authHeaders,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ name })
+          body: JSON.stringify({
+            name,
+            goal: newProjectGoal.trim(),
+            baseline: newProjectBaseline.trim(),
+            weeklyMinutes: newProjectWeeklyMinutes
+          })
         });
         const data = (await response.json()) as { project?: Project; error?: string };
         if (!response.ok || !data.project) throw new Error(data.error || "项目创建失败");
@@ -1059,6 +1111,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         setProjects((current) => [data.project as Project, ...current]);
         setActiveProjectId(data.project.id);
         updateWorkspaceRoute(data.project.id, activeSection);
+        await loadProjectDetails(data.project);
+        await loadAssessment(data.project);
         shouldStickToBottomRef.current = true;
         setMessages([
           {
@@ -1069,6 +1123,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           }
         ]);
         setNewProjectName("");
+        setNewProjectGoal("");
+        setNewProjectBaseline("");
+        setNewProjectWeeklyMinutes(180);
         setNewProjectOpen(false);
       } catch (error) {
         setWorkspaceError(error instanceof Error ? error.message : "项目创建失败，请稍后重试。");
@@ -1097,6 +1154,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       void loadProjectDetails(project).catch((error) => {
         setInsightError(error instanceof Error ? error.message : "项目详情加载失败。");
       });
+      void loadAssessment(project);
     }
     setMobileNavOpen(false);
   };
@@ -1123,6 +1181,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     updateWorkspaceRoute(data.projects[0].id, activeSection, true);
     await loadMessages(data.projects[0]);
     await loadProjectDetails(data.projects[0]);
+    await loadAssessment(data.projects[0]);
   };
 
   const deleteProject = async (projectId: string) => {
@@ -1157,6 +1216,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         updateWorkspaceRoute(remainingProjects[0].id, activeSection, true);
         await loadMessages(remainingProjects[0]);
         await loadProjectDetails(remainingProjects[0]);
+        await loadAssessment(remainingProjects[0]);
       } else {
         await reloadProjects();
       }
@@ -1236,6 +1296,59 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     }
   };
 
+  const generateAssessment = async () => {
+    if (!activeProject || assessmentLoading) return;
+    setAssessmentLoading(true);
+    setAssessmentError("");
+
+    try {
+      const response = await fetch(`/api/projects/${activeProject.id}/assessments`, {
+        method: "POST",
+        headers: authHeaders
+      });
+      const data = (await response.json()) as ApiAssessmentResponse;
+      if (response.status === 401) {
+        onSignOut();
+        return;
+      }
+      if (!response.ok || !data.assessment) throw new Error(data.error || "测评生成失败");
+      setAssessment(data.assessment);
+    } catch (error) {
+      setAssessmentError(error instanceof Error ? error.message : "测评生成失败，请稍后重试。");
+    } finally {
+      setAssessmentLoading(false);
+    }
+  };
+
+  const submitAssessment = async (answers: Array<{ itemId: string; answer: string }>) => {
+    if (!activeProject || !assessment || assessmentLoading) return;
+    setAssessmentLoading(true);
+    setAssessmentError("");
+
+    try {
+      const response = await fetch(`/api/projects/${activeProject.id}/assessments/${assessment.id}/submit`, {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ answers })
+      });
+      const data = (await response.json()) as ApiAssessmentResponse;
+      if (response.status === 401) {
+        onSignOut();
+        return;
+      }
+      if (!response.ok || !data.assessment) throw new Error(data.error || "测评提交失败");
+      setAssessment(data.assessment);
+      await loadProjectDetails(activeProject);
+    } catch (error) {
+      setAssessmentError(error instanceof Error ? error.message : "测评提交失败，请稍后重试。");
+    } finally {
+      setAssessmentLoading(false);
+    }
+  };
+
   const deleteResource = async (resourceId: string) => {
     if (!activeProject || deletingResourceId) return;
     const resource = resources.find((item) => item.id === resourceId);
@@ -1295,12 +1408,13 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         void loadProjectDetails(routeProject).catch((error) => {
           setInsightError(error instanceof Error ? error.message : "项目详情加载失败。");
         });
+        void loadAssessment(routeProject);
       }
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [activeProjectId, loadMessages, loadProjectDetails, projects]);
+  }, [activeProjectId, loadMessages, loadProjectDetails, loadAssessment, projects]);
 
   const openProfileSettings = () => {
     setDraftProfile(profile);
@@ -1555,6 +1669,11 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
                 messages={messages}
                 knowledgeNodes={knowledgeNodes}
                 knowledgeEdges={knowledgeEdges}
+                assessment={assessment}
+                assessmentLoading={assessmentLoading}
+                assessmentError={assessmentError}
+                onGenerateAssessment={() => void generateAssessment()}
+                onSubmitAssessment={(answers) => void submitAssessment(answers)}
               />
             )}
             {activeSection === "资料库" && (
@@ -1590,9 +1709,15 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       {newProjectOpen && (
         <NewProjectModal
           newProjectName={newProjectName}
+          goal={newProjectGoal}
+          baseline={newProjectBaseline}
+          weeklyMinutes={newProjectWeeklyMinutes}
           onClose={() => setNewProjectOpen(false)}
           onSubmit={createProject}
           onNameChange={setNewProjectName}
+          onGoalChange={setNewProjectGoal}
+          onBaselineChange={setNewProjectBaseline}
+          onWeeklyMinutesChange={setNewProjectWeeklyMinutes}
         />
       )}
 

@@ -6,6 +6,8 @@ type DbProject = {
   name: string;
   subject: string | null;
   project_type: "course" | "competition" | "research";
+  goal: string | null;
+  weekly_minutes: number;
   progress: number;
   created_at: string;
 };
@@ -65,7 +67,7 @@ async function ensureConversation(token: string, userId: string, projectId: stri
 async function ensureStarterData(token: string, userId: string) {
   const projects = await supabaseRest<DbProject[]>(
     token,
-    "projects?select=id,name,subject,project_type,progress,created_at&order=created_at.asc"
+    "projects?select=id,name,subject,project_type,goal,weekly_minutes,progress,created_at&order=created_at.asc"
   );
 
   if (projects.length > 0) return projects;
@@ -100,6 +102,8 @@ export async function GET(request: NextRequest) {
         id: project.id,
         name: project.name,
         subject: project.subject || "学习项目",
+        goal: project.goal || "",
+        weeklyMinutes: project.weekly_minutes,
         emoji: index === 0 ? "🧠" : project.project_type === "course" ? "📘" : "✨",
         progress: project.progress,
         conversationId: conversations.find((conversation) => conversation.project_id === project.id)?.id
@@ -116,9 +120,12 @@ export async function POST(request: NextRequest) {
     const auth = await requireUser(request);
     if ("status" in auth) return jsonError(auth.error, auth.status);
 
-    const body = (await request.json()) as { name?: string };
+    const body = (await request.json()) as { name?: string; goal?: string; baseline?: string; weeklyMinutes?: number };
     const name = body.name?.trim();
     if (!name) return jsonError("项目名称不能为空", 400);
+    const goal = body.goal?.trim() || "";
+    const baseline = body.baseline?.trim() || "";
+    const weeklyMinutes = Math.min(2400, Math.max(30, Math.round(Number(body.weeklyMinutes) || 180)));
 
     const created = await supabaseRest<DbProject[]>(auth.token, "projects", {
       method: "POST",
@@ -126,8 +133,10 @@ export async function POST(request: NextRequest) {
       body: {
         user_id: auth.user.id,
         name,
-        subject: "待生成学习画像",
+        subject: baseline ? `当前基础：${baseline}` : "待生成学习画像",
         project_type: "research",
+        goal,
+        weekly_minutes: weeklyMinutes,
         progress: 0
       }
     });
@@ -141,6 +150,8 @@ export async function POST(request: NextRequest) {
         id: project.id,
         name: project.name,
         subject: project.subject || "学习项目",
+        goal: project.goal || "",
+        weeklyMinutes: project.weekly_minutes,
         emoji: "✨",
         progress: project.progress,
         conversationId: conversation.id

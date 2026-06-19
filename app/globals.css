@@ -2746,3 +2746,55 @@ textarea:focus-visible {
     width: 100%;
   }
 }
+/* Assessment loop */
+.assessment-box {
+  display: grid;
+  gap: 14px;
+}
+
+.assessment-item {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e3e7f3;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.assessment-item strong {
+  color: #16213a;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.assessment-options {
+  display: grid;
+  gap: 8px;
+}
+
+.assessment-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #42516d;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.assessment-item textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid #d9deee;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #172033;
+  background: #fff;
+}
+
+.module-success {
+  margin: 0;
+  color: #0f766e;
+  font-size: 12px;
+  line-height: 1.5;
+}

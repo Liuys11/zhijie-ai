@@ -18,7 +18,7 @@ import {
   Upload
 } from "lucide-react";
 import { createProjectFileSignedUrl, type AuthSession } from "@/lib/supabase-browser";
-import type { KnowledgeEdge, KnowledgeNode, KnowledgeStatus, LearningStep, Message, Project, ProjectStats, Resource, ResourceCategory } from "./types";
+import type { Assessment, KnowledgeEdge, KnowledgeNode, KnowledgeStatus, LearningStep, Message, Project, ProjectStats, Resource, ResourceCategory } from "./types";
 
 const resourceCategories: Array<{ value: "all" | ResourceCategory; label: string; icon: typeof FileText }> = [
   { value: "all", label: "全部资源", icon: FolderOpen },
@@ -77,9 +77,36 @@ type ModuleProps = {
   knowledgeEdges: KnowledgeEdge[];
 };
 
-export function ProjectOverview({ activeProject, resources, learningSteps, stats, messages, knowledgeNodes }: ModuleProps) {
+type ProjectOverviewProps = ModuleProps & {
+  assessment: Assessment | null;
+  assessmentLoading: boolean;
+  assessmentError: string;
+  onGenerateAssessment: () => void;
+  onSubmitAssessment: (answers: Array<{ itemId: string; answer: string }>) => void;
+};
+
+export function ProjectOverview({
+  activeProject,
+  resources,
+  learningSteps,
+  stats,
+  messages,
+  knowledgeNodes,
+  assessment,
+  assessmentLoading,
+  assessmentError,
+  onGenerateAssessment,
+  onSubmitAssessment
+}: ProjectOverviewProps) {
   const counts = getKnowledgeCounts(knowledgeNodes);
   const advice = buildLearningAdvice(learningSteps, resources, knowledgeNodes, messages);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const currentStep = learningSteps.find((step) => step.status === "doing") || learningSteps[0];
+
+  const submitAnswers = () => {
+    if (!assessment) return;
+    onSubmitAssessment(assessment.items.map((item) => ({ itemId: item.id, answer: answers[item.id] || "" })));
+  };
 
   return (
     <section className="module-panel">
@@ -88,6 +115,7 @@ export function ProjectOverview({ activeProject, resources, learningSteps, stats
           <span><Sparkles size={15} /> 项目总览</span>
           <h2>{activeProject.name}</h2>
           <p>{activeProject.subject || "还没有设置学科信息"}</p>
+          {activeProject.goal && <p>学习目标：{activeProject.goal}</p>}
         </div>
         <strong>{activeProject.progress}%</strong>
       </div>
@@ -112,6 +140,11 @@ export function ProjectOverview({ activeProject, resources, learningSteps, stats
           <span><BookOpen size={16} /> 最近学习</span>
           <strong>{formatTime(stats.recentStudyAt)}</strong>
           <p>根据路线、资料和项目更新时间汇总。</p>
+        </article>
+        <article className="module-card">
+          <span><CheckCircle2 size={16} /> 测评成绩</span>
+          <strong>{typeof stats.averageScore === "number" ? `${stats.averageScore}分` : "暂无"}</strong>
+          <p>{stats.assessments ? `已完成 ${stats.assessments} 次测评。` : "完成随堂测评后会记录成绩。"}</p>
         </article>
       </div>
 
@@ -157,6 +190,91 @@ export function ProjectOverview({ activeProject, resources, learningSteps, stats
       <section className="module-card wide advice-card">
         <span><Lightbulb size={17} /> AI 下一步建议</span>
         <p>{advice}</p>
+      </section>
+
+      <section className="module-card wide">
+        <div className="module-section-title">
+          <h3>阶段学习报告</h3>
+          <span>实时汇总</span>
+        </div>
+        <p>
+          已完成 {stats.done} 个学习任务，当前进度 {activeProject.progress}%；
+          {typeof stats.averageScore === "number" ? ` 平均测评成绩 ${stats.averageScore} 分；` : " 还没有测评成绩；"}
+          {stats.weakKnowledge?.length ? ` 薄弱知识：${stats.weakKnowledge.join("、")}。` : " 暂未识别明显薄弱点。"}
+        </p>
+        <p className="module-empty">建议：{advice}</p>
+      </section>
+
+      <section className="module-card wide">
+        <div className="module-section-title">
+          <h3>测评与复习</h3>
+          <span>{currentStep ? `围绕：${currentStep.title}` : "当前项目"}</span>
+        </div>
+        {assessmentError && <p className="module-error">{assessmentError}</p>}
+        {!assessment && (
+          <div className="module-empty-state">
+            <CheckCircle2 size={26} />
+            <strong>还没有随堂测评</strong>
+            <span>生成 4 道基础题，提交后会更新测评成绩和知识点掌握度。</span>
+            <button type="button" onClick={onGenerateAssessment} disabled={assessmentLoading}>
+              {assessmentLoading ? "生成中..." : "生成随堂测评"}
+            </button>
+          </div>
+        )}
+        {assessment && (
+          <div className="assessment-box">
+            <div className="module-section-title">
+              <h3>{assessment.title}</h3>
+              <span>{assessment.status === "submitted" ? `得分 ${assessment.score ?? 0}/${assessment.totalScore}` : "待提交"}</span>
+            </div>
+            {assessment.items.map((item, index) => (
+              <div className="assessment-item" key={item.id}>
+                <strong>{index + 1}. {item.question}</strong>
+                {item.options.length > 0 ? (
+                  <div className="assessment-options">
+                    {item.options.map((option) => (
+                      <label key={option}>
+                        <input
+                          type="radio"
+                          name={item.id}
+                          value={option}
+                          disabled={assessment.status === "submitted"}
+                          checked={(assessment.status === "submitted" ? item.userAnswer : answers[item.id]) === option}
+                          onChange={(event) => setAnswers((current) => ({ ...current, [item.id]: event.target.value }))}
+                        />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <textarea
+                    disabled={assessment.status === "submitted"}
+                    value={assessment.status === "submitted" ? item.userAnswer || "" : answers[item.id] || ""}
+                    onChange={(event) => setAnswers((current) => ({ ...current, [item.id]: event.target.value }))}
+                    placeholder="写下你的理解..."
+                    rows={2}
+                  />
+                )}
+                {assessment.status === "submitted" && (
+                  <p className={item.isCorrect ? "module-success" : "module-error"}>
+                    {item.isCorrect ? "回答正确。" : `正确答案：${item.correctAnswer}。`}
+                    {item.explanation ? ` ${item.explanation}` : ""}
+                  </p>
+                )}
+              </div>
+            ))}
+            <div className="library-resource-actions">
+              <button type="button" onClick={onGenerateAssessment} disabled={assessmentLoading}>
+                {assessmentLoading ? "生成中..." : "重新生成"}
+              </button>
+              {assessment.status !== "submitted" && (
+                <button type="button" onClick={submitAnswers} disabled={assessmentLoading}>
+                  {assessmentLoading ? "提交中..." : "提交并批改"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </section>
     </section>
   );

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, supabaseRest } from "@/lib/supabase-rest";
 
-type DbProject = { id: string; progress: number; created_at: string };
+type DbProject = { id: string; progress: number; goal: string | null; weekly_minutes: number; created_at: string };
 type DbStep = { id: string; title: string; status: "todo" | "doing" | "done"; sort_order: number; updated_at: string };
 type DbDocument = {
   id: string;
@@ -27,6 +27,12 @@ type DbKnowledgeEdge = {
   source_node_id: string;
   target_node_id: string;
   relation: string;
+};
+type DbAssessment = {
+  id: string;
+  score: number | string | null;
+  status: "draft" | "submitted";
+  created_at: string;
 };
 
 const defaultSteps = [
@@ -76,7 +82,7 @@ function calculateProgress(steps: DbStep[], fallback: number) {
 }
 
 async function ensureProject(token: string, projectId: string) {
-  const projects = await supabaseRest<DbProject[]>(token, `projects?select=id,progress,created_at&id=eq.${projectId}&limit=1`);
+  const projects = await supabaseRest<DbProject[]>(token, `projects?select=id,progress,goal,weekly_minutes,created_at&id=eq.${projectId}&limit=1`);
   return projects[0] || null;
 }
 
@@ -121,6 +127,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pro
       auth.token,
       `knowledge_edges?select=id,source_node_id,target_node_id,relation&project_id=eq.${projectId}`
     );
+    const assessments = await supabaseRest<DbAssessment[]>(
+      auth.token,
+      `assessments?select=id,score,status,created_at&project_id=eq.${projectId}&status=eq.submitted&order=created_at.desc`
+    ).catch(() => []);
     const progress = calculateProgress(steps, project.progress);
     if (progress !== project.progress) {
       await supabaseRest<unknown[]>(auth.token, `projects?id=eq.${projectId}`, {
@@ -129,12 +139,19 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pro
       });
     }
 
-    const timestamps = [project.created_at, ...steps.map((step) => step.updated_at), ...documents.map((document) => document.created_at)];
+    const timestamps = [project.created_at, ...steps.map((step) => step.updated_at), ...documents.map((document) => document.created_at), ...assessments.map((assessment) => assessment.created_at)];
     const recentStudyAt = timestamps.sort().at(-1) || project.created_at;
+    const submittedScores = assessments.map((assessment) => Number(assessment.score)).filter((score) => Number.isFinite(score));
+    const averageScore = submittedScores.length
+      ? Math.round(submittedScores.reduce((sum, score) => sum + score, 0) / submittedScores.length)
+      : null;
+    const weakKnowledge = knowledgeNodes.filter((node) => getKnowledgeStatus(node) === "weak").map((node) => node.title).slice(0, 5);
 
     return NextResponse.json({
       ok: true,
       progress,
+      goal: project.goal || "",
+      weeklyMinutes: project.weekly_minutes,
       steps: steps.map((step) => ({
         id: step.id,
         title: step.title,
@@ -174,7 +191,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pro
         doing: steps.filter((step) => step.status === "doing").length,
         todo: steps.filter((step) => step.status === "todo").length,
         resources: documents.length,
-        recentStudyAt
+        recentStudyAt,
+        assessments: assessments.length,
+        averageScore,
+        weakKnowledge
       }
     });
   } catch (error) {

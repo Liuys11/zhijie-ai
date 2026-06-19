@@ -6,6 +6,10 @@ export type Project = {
   subject: string;
   emoji: string;
   progress: number;
+  goal?: string;
+  baseline?: string;
+  weeklyMinutes?: number;
+  deadline?: string;
   conversationId?: string;
 };
 
@@ -24,6 +28,9 @@ export type ProjectStats = {
   todo: number;
   resources: number;
   recentStudyAt: string;
+  assessments?: number;
+  averageScore?: number | null;
+  weakKnowledge?: string[];
 };
 
 export type Message = {
@@ -140,6 +147,32 @@ export type KnowledgeEdge = {
   sourceNodeId: string;
   targetNodeId: string;
   relation: string;
+};
+
+export type AssessmentQuestionType = "single_choice" | "true_false" | "short_answer";
+
+export type AssessmentItem = {
+  id: string;
+  questionType: AssessmentQuestionType;
+  question: string;
+  options: string[];
+  correctAnswer?: string;
+  explanation?: string;
+  knowledgeTitle?: string;
+  userAnswer?: string;
+  isCorrect?: boolean;
+  feedback?: string;
+};
+
+export type Assessment = {
+  id: string;
+  title: string;
+  status: "draft" | "submitted";
+  score?: number | null;
+  totalScore: number;
+  createdAt: string;
+  submittedAt?: string;
+  items: AssessmentItem[];
 };
 
 export type UserProfile = {
