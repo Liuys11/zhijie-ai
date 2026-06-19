@@ -17,6 +17,12 @@ export function buildVideoParts({
   taskId,
   taskStatus,
   provider,
+  taskIdMasked,
+  startedAt,
+  elapsedMs,
+  lastCheckedAt,
+  providerStatusLabel,
+  providerStatusDetail,
   duration,
   difficulty,
   style,
@@ -30,6 +36,12 @@ export function buildVideoParts({
   taskId?: string;
   taskStatus?: string;
   provider?: string;
+  taskIdMasked?: string;
+  startedAt?: string;
+  elapsedMs?: number;
+  lastCheckedAt?: string;
+  providerStatusLabel?: string;
+  providerStatusDetail?: string;
   duration: VideoDurationOption;
   difficulty: VideoDifficulty;
   style: VideoStyle;
@@ -55,6 +67,12 @@ export function buildVideoParts({
       taskId,
       taskStatus,
       provider,
+      taskIdMasked,
+      startedAt,
+      elapsedMs,
+      lastCheckedAt,
+      providerStatusLabel,
+      providerStatusDetail,
       duration,
       difficulty,
       style

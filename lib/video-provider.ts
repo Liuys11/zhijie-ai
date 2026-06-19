@@ -39,6 +39,11 @@ export type XfyunVideoQueryResult = {
   status: XfyunVideoStatus;
   taskStatus: string;
   message: string;
+  headerCode: string;
+  headerMessage: string;
+  hasPayload: boolean;
+  hasVideo: boolean;
+  hasText: boolean;
   hasVideoUrl: boolean;
   videoUrl?: string;
   script?: string;
@@ -76,6 +81,24 @@ type PayloadReadResult = {
   value: string;
   kind: string;
   textLength: number;
+};
+
+export type XfyunVideoDiagnosticResult = {
+  taskId?: string;
+  taskIdMasked?: string;
+  httpStatus: number;
+  headerCode: string;
+  headerMessage: string;
+  taskStatus: string;
+  hasTaskId: boolean;
+  hasPayload: boolean;
+  hasVideo: boolean;
+  hasText: boolean;
+  hasVideoUrl: boolean;
+  payloadKeys: string[];
+  videoPayloadKind: string;
+  videoTextLength: number;
+  videoUrl?: string;
 };
 
 const DEFAULT_GENERATE_URL = "https://vms.cn-huadong-1.xf-yun.com/v1/private/video/generate";
@@ -374,24 +397,16 @@ function compactRepeatedText(value: string) {
 
 function buildXfyunVideoPrompt(input: CreateVideoTaskInput) {
   const topic = truncatePrompt(compactRepeatedText(sanitizePromptText(input.topic)), 80);
-  if (!topic) throw new Error("视频主题不能为空");
+  if (!topic) throw new Error("\u89c6\u9891\u4e3b\u9898\u4e0d\u80fd\u4e3a\u7a7a");
 
-  const requirementMap: Record<VideoStyle, string[]> = {
-    知识讲解: ["讲清核心概念", "解释关键公式", "给出简单算例", "总结易错点"],
-    考前复习: ["突出考试重点", "梳理公式用法", "提示常见失误", "给出记忆线索"],
-    概念科普: ["用通俗语言解释", "联系生活例子", "避免堆砌术语", "总结直观理解"],
-    案例分析: ["结合具体场景", "说明解题步骤", "解释参数含义", "给出结论"]
-  };
-  const requirements = requirementMap[input.style].slice(0, 4).join("、");
   const prompt = [
-    `请生成一段中文数字人教学视频，主题为${topic}。`,
-    `面向${input.difficulty}学习者，风格为${input.style}。`,
-    `${requirements}，表达简洁清晰。`
+    `\u8bf7\u751f\u6210\u4e00\u6bb5\u4e2d\u6587\u6570\u5b57\u4eba\u6559\u5b66\u89c6\u9891\uff0c\u4e3b\u9898\u4e3a${topic}\u3002`,
+    `\u9762\u5411${input.difficulty}\u5b66\u4e60\u8005\uff0c\u98ce\u683c\u4e3a${input.style}\u3002`,
+    "\u8bb2\u6e05\u6838\u5fc3\u6982\u5ff5\u3001\u5173\u952e\u516c\u5f0f\u3001\u7269\u7406\u610f\u4e49\u548c\u4e00\u4e2a\u7b80\u5355\u4f8b\u5b50\uff0c\u8868\u8fbe\u7b80\u6d01\u6e05\u6670\u3002"
   ].join("");
 
   return truncatePrompt(prompt);
 }
-
 export function durationLabel(duration: VideoDurationOption) {
   if (duration === "30s") return "约30秒";
   if (duration === "90s") return "约1分30秒";
@@ -478,14 +493,19 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
   const header = getHeader(response.data);
   const payload = asRecord(response.data.payload);
   const taskStatus = getTaskStatus(response.data);
+  const headerCode = readString(header, "code");
+  const headerMessage = readString(header, "message");
+  const hasPayload = Boolean(payload);
+  const hasVideo = Boolean(payload?.video);
+  const hasText = Boolean(payload?.text);
   const textPayload = readPayloadValue(response.data, "text");
   const videoPayload = readPayloadValue(response.data, "video");
   const videoUrl = extractUrlFromPayload(response.data, "video");
 
   console.info("[xfyun-video-query]", {
     httpStatus: response.status,
-    code: readString(header, "code"),
-    message: readString(header, "message"),
+    code: headerCode,
+    message: headerMessage,
     taskStatus,
     payloadKeys: Object.keys(payload || {}),
     videoPayloadKind: videoPayload.kind,
@@ -503,6 +523,11 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
       status,
       taskStatus,
       message: status === "created" ? "视频正在排队，请稍候。" : "正在生成数字人视频，请稍候。",
+      headerCode,
+      headerMessage,
+      hasPayload,
+      hasVideo,
+      hasText,
       hasVideoUrl: false
     };
   }
@@ -513,6 +538,11 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
       status: "processing",
       taskStatus,
       message: "视频已生成，正在获取播放地址，请继续查询。",
+      headerCode,
+      headerMessage,
+      hasPayload,
+      hasVideo,
+      hasText,
       hasVideoUrl: false,
       script: textPayload.value || undefined,
       imageUrl: extractUrlFromPayload(response.data, "image") || undefined,
@@ -526,6 +556,11 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
     status: "completed",
     taskStatus,
     message: "视频生成完成。",
+      headerCode,
+      headerMessage,
+      hasPayload,
+      hasVideo,
+      hasText,
     hasVideoUrl: true,
     videoUrl,
     script: textPayload.value || undefined,
@@ -533,4 +568,72 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
     audioUrl: extractUrlFromPayload(response.data, "audio") || undefined,
     bgmUrl: extractUrlFromPayload(response.data, "bgm") || undefined
   };
+}
+
+function toDiagnosticResult(response: XfyunHttpResult, taskId: string): XfyunVideoDiagnosticResult {
+  const header = getHeader(response.data);
+  const payload = asRecord(response.data.payload);
+  const taskStatus = getTaskStatus(response.data);
+  const videoPayload = readPayloadValue(response.data, "video");
+  const videoUrl = extractUrlFromPayload(response.data, "video");
+  const responseTaskId = readString(header, "task_id") || taskId;
+
+  return {
+    taskId: responseTaskId,
+    taskIdMasked: responseTaskId ? maskTaskId(responseTaskId) : undefined,
+    httpStatus: response.status,
+    headerCode: readString(header, "code"),
+    headerMessage: readString(header, "message"),
+    taskStatus,
+    hasTaskId: Boolean(responseTaskId),
+    hasPayload: Boolean(payload),
+    hasVideo: Boolean(payload?.video),
+    hasText: Boolean(payload?.text),
+    hasVideoUrl: Boolean(videoUrl),
+    payloadKeys: Object.keys(payload || {}),
+    videoPayloadKind: videoPayload.kind,
+    videoTextLength: videoPayload.textLength,
+    videoUrl: videoUrl || undefined
+  };
+}
+
+export async function createXfyunVideoDiagnosticTask(config: VideoProviderConfig): Promise<XfyunVideoDiagnosticResult> {
+  const prompt = "生成一段简短的中文教学视频，介绍异步电动机转差率的基本概念和公式。";
+  const body: XfyunVideoGenerateRequest = {
+    header: {
+      app_id: config.appId
+    },
+    parameter: {
+      avatar: {
+        prompt,
+        word_count: 80
+      }
+    }
+  };
+
+  console.info("[xfyun-video-diagnostic-body]", {
+    phase: "generate",
+    headerKeys: Object.keys(body.header),
+    parameterKeys: Object.keys(body.parameter),
+    avatarKeys: Object.keys(body.parameter.avatar),
+    promptLength: getCharacterLength(prompt),
+    wordCount: body.parameter.avatar.word_count
+  });
+
+  const response = await callXfyunVideo(config.generateUrl, config, body);
+  assertSuccess(response.data, "诊断创建任务");
+  return toDiagnosticResult(response, "");
+}
+
+export async function queryXfyunVideoDiagnosticTask(taskId: string, config: VideoProviderConfig): Promise<XfyunVideoDiagnosticResult> {
+  const body = buildQueryBody(config, taskId);
+  console.info("[xfyun-video-diagnostic-body]", {
+    phase: "query",
+    headerKeys: Object.keys(body.header),
+    hasTaskId: Boolean(taskId)
+  });
+
+  const response = await callXfyunVideo(config.queryUrl, config, body);
+  assertSuccess(response.data, "诊断查询任务");
+  return toDiagnosticResult(response, taskId);
 }

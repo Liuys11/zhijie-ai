@@ -27,6 +27,13 @@ const MAX_TOPIC_LENGTH = 300;
 const activeVideoTasks = new Map<string, number>();
 const DUPLICATE_TASK_TTL_MS = 120000;
 
+function logBuildVersion() {
+  console.info("[video-build-version]", {
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || "local",
+    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || "local"
+  });
+}
+
 function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
@@ -84,6 +91,11 @@ function getTaskKey(userId: string, projectId: string, topic: string) {
   return `${userId}:${projectId}:${topic.trim().toLowerCase()}`;
 }
 
+function maskTaskId(taskId: string) {
+  if (taskId.length <= 8) return "***";
+  return `${taskId.slice(0, 4)}...${taskId.slice(-4)}`;
+}
+
 function isDuplicateTask(taskKey: string) {
   const startedAt = activeVideoTasks.get(taskKey);
   if (!startedAt) return false;
@@ -96,6 +108,7 @@ function isDuplicateTask(taskKey: string) {
 
 export async function POST(request: NextRequest) {
   try {
+    logBuildVersion();
     const auth = await requireUser(request);
     if ("status" in auth) return jsonError(auth.error, auth.status);
 
@@ -154,6 +167,7 @@ export async function POST(request: NextRequest) {
         videoConfig
       );
       const content = "正在生成数字人视频，请稍候。";
+      const startedAt = new Date().toISOString();
       const parts = buildVideoParts({
         title: parsedBody.topic,
         status: "generating",
@@ -161,6 +175,11 @@ export async function POST(request: NextRequest) {
         taskId: task.taskId,
         taskStatus: "1",
         provider: task.provider,
+        taskIdMasked: maskTaskId(task.taskId),
+        startedAt,
+        elapsedMs: 0,
+        providerStatusLabel: "\u8baf\u98de\u72b6\u6001\uff1a\u5df2\u521b\u5efa/\u6392\u961f\u4e2d\uff081\uff09",
+        providerStatusDetail: "\u4efb\u52a1\u5df2\u521b\u5efa\uff0c\u7b49\u5f85\u9996\u6b21\u67e5\u8be2\u8fd4\u56de\u8baf\u98de\u5904\u7406\u72b6\u6001\u3002",
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style
@@ -178,7 +197,7 @@ export async function POST(request: NextRequest) {
           style: parsedBody.style,
           prompt: task.prompt,
           wordCount: task.wordCount,
-          startedAt: new Date().toISOString(),
+          startedAt,
           pollCount: 0
         }
       }, task.model);

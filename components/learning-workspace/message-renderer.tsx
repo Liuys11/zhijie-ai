@@ -358,6 +358,15 @@ function MediaPlaceholder({
             {part.style ? `；风格：${part.style}` : ""}
           </p>
         )}
+        {(part.taskIdMasked || part.lastCheckedAt || part.providerStatusLabel || part.providerStatusDetail) && (
+          <p className="generated-note">
+            {part.taskIdMasked ? `任务：${part.taskIdMasked}` : ""}
+            {part.elapsedMs ? `；已等待：${Math.floor(part.elapsedMs / 60000)}分${String(Math.floor((part.elapsedMs % 60000) / 1000)).padStart(2, "0")}秒` : ""}
+            {part.lastCheckedAt ? `；最近查询：${part.lastCheckedAt}` : ""}
+            {part.providerStatusLabel ? `?${part.providerStatusLabel}` : ""}
+            {part.providerStatusDetail ? `?${part.providerStatusDetail}` : ""}
+          </p>
+        )}
         {part.url ? (
           <video className="generated-video" src={part.url} controls />
         ) : (
