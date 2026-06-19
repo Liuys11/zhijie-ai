@@ -154,7 +154,6 @@ export async function POST(request: NextRequest) {
         videoConfig
       );
       const content = "正在生成数字人视频，请稍候。";
-      const startedAt = new Date().toISOString();
       const parts = buildVideoParts({
         title: parsedBody.topic,
         status: "generating",
@@ -162,9 +161,6 @@ export async function POST(request: NextRequest) {
         taskId: task.taskId,
         taskStatus: "1",
         provider: task.provider,
-        startedAt,
-        pollCount: 0,
-        elapsedMs: 0,
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style
@@ -182,7 +178,7 @@ export async function POST(request: NextRequest) {
           style: parsedBody.style,
           prompt: task.prompt,
           wordCount: task.wordCount,
-          startedAt,
+          startedAt: new Date().toISOString(),
           pollCount: 0
         }
       }, task.model);

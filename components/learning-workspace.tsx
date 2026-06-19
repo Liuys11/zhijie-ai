@@ -88,7 +88,7 @@ const defaultProjectStats: ProjectStats = {
 const imagePollIntervalMs = 3000;
 const imagePollMaxCount = 40;
 const videoPollIntervalMs = 5000;
-const videoAutoPollMaxMs = 15 * 60 * 1000;
+const videoPollMaxCount = 60;
 
 function getImageTaskFromMessage(message: Message) {
   const imagePart = message.parts?.find((part) => part.type === "image" && part.taskId && part.status === "generating");
@@ -111,9 +111,7 @@ function getVideoTaskFromMessage(message: Message) {
     duration: videoPart.duration || "60s",
     difficulty: videoPart.difficulty || "基础",
     style: videoPart.style || "知识讲解",
-    taskStatus: videoPart.taskStatus,
-    startedAt: videoPart.startedAt,
-    elapsedMs: videoPart.elapsedMs || 0
+    taskStatus: videoPart.taskStatus
   };
 }
 
@@ -125,14 +123,6 @@ function maskTaskId(taskId?: string) {
   if (!taskId) return "";
   if (taskId.length <= 8) return "***";
   return `${taskId.slice(0, 4)}...${taskId.slice(-4)}`;
-}
-
-function formatElapsedTime(elapsedMs: number) {
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes <= 0) return `${seconds}\u79d2`;
-  return `${minutes}\u5206${String(seconds).padStart(2, "0")}\u79d2`;
 }
 
 const sectionToSlug: Record<WorkspaceSection, string> = {
@@ -718,23 +708,17 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
 
         videoInFlightTasksRef.current.add(pollingKey);
         setVideoMessageChecking(pollingKey, true);
-        const startedTime = currentTask.startedAt ? Date.parse(currentTask.startedAt) : 0;
-        const currentElapsedMs = Number.isFinite(startedTime) && startedTime > 0
-          ? Math.max(0, Date.now() - startedTime)
-          : currentTask.elapsedMs;
-        const queryingLabel = `正在查询视频状态，已等待 ${formatElapsedTime(currentElapsedMs)}...`;
         setMessages((current) =>
           current.map((item) => {
             if (item.id !== currentMessage.id) return item;
             return {
               ...item,
-              content: queryingLabel,
+              content: "正在查询视频状态...",
               parts: item.parts?.map((part) =>
                 part.type === "video"
                   ? {
                       ...part,
-                      progressLabel: queryingLabel,
-                      elapsedMs: currentElapsedMs
+                      progressLabel: "正在查询视频状态..."
                     }
                   : part
               )
@@ -773,22 +757,19 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           nextMessage = data.message as Message;
           setMessages((current) => replaceMessage(current, nextMessage as Message));
 
-          const nextTask = getVideoTaskFromMessage(nextMessage);
-          const nextElapsedMs = nextTask?.elapsedMs ?? currentElapsedMs;
-          shouldContinue = data.status !== "completed" && nextElapsedMs < videoAutoPollMaxMs;
+          shouldContinue = data.status !== "completed" && pollCount < videoPollMaxCount;
           if (!shouldContinue && data.status !== "completed") {
-            const manualContinueLabel = `讯飞仍在处理该任务，可以稍后继续查询原任务。已等待 ${formatElapsedTime(nextElapsedMs)}`;
             setMessages((current) =>
               current.map((item) => {
                 if (item.id !== currentMessage.id) return item;
                 return {
                   ...item,
-                  content: manualContinueLabel,
+                  content: "视频仍在生成中，请稍后继续查询。",
                   parts: item.parts?.map((part) =>
                     part.type === "video"
                       ? {
                           ...part,
-                          progressLabel: manualContinueLabel
+                          progressLabel: "视频仍在生成中，请稍后继续查询。"
                         }
                       : part
                   )

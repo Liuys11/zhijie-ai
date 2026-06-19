@@ -39,7 +39,6 @@ type SubtitleResult = {
 };
 
 const SUBTITLE_BUCKET = "generated-images";
-const MAX_AUTO_VIDEO_POLL_MS = 15 * 60 * 1000;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
@@ -51,41 +50,6 @@ function asString(value: unknown) {
 
 function asNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-function getVideoTaskMetadata(message: DbMessageWithMetadata) {
-  return asRecord(message.metadata?.videoTask);
-}
-
-function getStartedAt(message: DbMessageWithMetadata) {
-  const videoTask = getVideoTaskMetadata(message);
-  return asString(videoTask?.startedAt) || new Date().toISOString();
-}
-
-function getElapsedMs(startedAt: string) {
-  const startedTime = Date.parse(startedAt);
-  if (!Number.isFinite(startedTime)) return 0;
-  return Math.max(0, Date.now() - startedTime);
-}
-
-function formatElapsed(elapsedMs: number) {
-  const totalSeconds = Math.floor(elapsedMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes <= 0) return `${seconds}秒`;
-  return `${minutes}分${String(seconds).padStart(2, "0")}秒`;
-}
-
-function getNowLabel() {
-  return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
-}
-
-function withQueryStatusLabel(message: string, elapsedMs: number, lastCheckedAt: string) {
-  return `${message} 已等待 ${formatElapsed(elapsedMs)}，最近查询 ${lastCheckedAt}`;
 }
 
 function isDuration(value: string): value is VideoDurationOption {
@@ -208,26 +172,11 @@ export async function POST(request: NextRequest) {
     const videoConfig = getVideoProviderConfig();
     if (!videoConfig) return jsonError("视频生成服务尚未配置完整，无法查询任务。", 400);
 
-    const startedAt = getStartedAt(message);
-    const lastCheckedAt = getNowLabel();
     const result = await queryXfyunVideoTask(parsedBody.taskId, videoConfig);
-    const elapsedMs = getElapsedMs(startedAt);
-    const autoPollExpired = elapsedMs >= MAX_AUTO_VIDEO_POLL_MS;
-
-    console.info("[video-status-query]", {
-      taskIdMasked: parsedBody.taskId.length <= 8 ? "***" : `${parsedBody.taskId.slice(0, 4)}...${parsedBody.taskId.slice(-4)}`,
-      messageId: parsedBody.messageId,
-      pollCount: parsedBody.pollCount,
-      elapsedMs,
-      taskStatus: result.taskStatus,
-      status: result.status,
-      hasVideoUrl: Boolean(result.videoUrl)
-    });
     if (!result.videoUrl) {
-      const statusMessage = autoPollExpired
-        ? "\u8baf\u98de\u4ecd\u5728\u5904\u7406\u8be5\u4efb\u52a1\uff0c\u53ef\u4ee5\u7a0d\u540e\u7ee7\u7eed\u67e5\u8be2\u539f\u4efb\u52a1\u3002"
+      const timeoutHint = parsedBody.pollCount * videoConfig.pollIntervalMs >= videoConfig.timeoutMs
+        ? "视频任务查询暂时超时，可继续查询原任务。"
         : result.message;
-      const timeoutHint = withQueryStatusLabel(statusMessage, elapsedMs, lastCheckedAt);
       const parts = buildVideoParts({
         title: parsedBody.topic,
         status: "generating",
@@ -235,10 +184,6 @@ export async function POST(request: NextRequest) {
         taskId: parsedBody.taskId,
         taskStatus: result.taskStatus,
         provider: "xfyun-avatar-video",
-        startedAt,
-        lastCheckedAt,
-        pollCount: parsedBody.pollCount,
-        elapsedMs,
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style,
@@ -256,9 +201,6 @@ export async function POST(request: NextRequest) {
           difficulty: parsedBody.difficulty,
           style: parsedBody.style,
           pollCount: parsedBody.pollCount,
-          startedAt,
-          elapsedMs,
-          autoPollExpired,
           lastCheckedAt: new Date().toISOString()
         }
       }, "xfyun-avatar-video");
@@ -293,10 +235,6 @@ export async function POST(request: NextRequest) {
       taskId: parsedBody.taskId,
       taskStatus: result.taskStatus,
       provider: "xfyun-avatar-video",
-      startedAt,
-      lastCheckedAt,
-      pollCount: parsedBody.pollCount,
-      elapsedMs,
       duration: parsedBody.duration,
       difficulty: parsedBody.difficulty,
       style: parsedBody.style,
@@ -320,10 +258,6 @@ export async function POST(request: NextRequest) {
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style,
-        startedAt,
-        elapsedMs,
-        pollCount: parsedBody.pollCount,
-        lastCheckedAt: new Date().toISOString(),
         videoUrl: result.videoUrl,
         audioUrl: result.audioUrl,
         script: result.script,
@@ -355,10 +289,6 @@ export async function POST(request: NextRequest) {
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style,
-        startedAt,
-        elapsedMs,
-        pollCount: parsedBody.pollCount,
-        lastCheckedAt: new Date().toISOString(),
         script: result.script,
         audioUrl: result.audioUrl,
         subtitleUrl: subtitle.subtitleUrl,
