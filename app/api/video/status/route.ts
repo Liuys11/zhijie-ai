@@ -6,8 +6,7 @@ import {
   saveGeneratedVideoAsset,
   updateMessage
 } from "@/lib/video-generation-store";
-import { getStoragePublicUrl, requireUser, supabaseRest, uploadStorageObject } from "@/lib/supabase-rest";
-import { estimateSubtitleDuration, generateWebVtt } from "@/lib/video-subtitles";
+import { requireUser, supabaseRest } from "@/lib/supabase-rest";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -28,17 +27,6 @@ type DbMessageWithMetadata = {
   user_id: string;
   metadata: Record<string, unknown>;
 };
-
-type SubtitleResult = {
-  subtitleUrl?: string;
-  subtitlePath?: string;
-  subtitleStatus: "generated" | "missing-script" | "failed";
-  subtitleMessage: string;
-  timedSegments?: Array<{ start: number; end: number; text: string }>;
-  durationSeconds?: number;
-};
-
-const SUBTITLE_BUCKET = "generated-images";
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
@@ -99,60 +87,6 @@ async function ensureMessageAccess(token: string, userId: string, messageId: str
     `messages?select=id,user_id,metadata&id=eq.${messageId}&user_id=eq.${userId}&limit=1`
   );
   return messages[0] || null;
-}
-
-async function createAndUploadSubtitle({
-  token,
-  userId,
-  projectId,
-  taskId,
-  script,
-  durationSeconds
-}: {
-  token: string;
-  userId: string;
-  projectId: string;
-  taskId: string;
-  script?: string;
-  durationSeconds?: number;
-}): Promise<SubtitleResult> {
-  if (!script?.trim()) {
-    return {
-      subtitleStatus: "missing-script",
-      subtitleMessage: "该视频未返回播报文案，暂时无法生成字幕。"
-    };
-  }
-
-  try {
-    const resolvedDuration = durationSeconds && Number.isFinite(durationSeconds) && durationSeconds > 0
-      ? durationSeconds
-      : estimateSubtitleDuration(script);
-    const { vtt, timedSegments } = generateWebVtt(script, resolvedDuration);
-    if (!vtt) {
-      return {
-        subtitleStatus: "missing-script",
-        subtitleMessage: "该视频未返回有效播报文案，暂时无法生成字幕。"
-      };
-    }
-
-    const subtitlePath = `${userId}/${projectId}/subtitles/${taskId}-${Date.now()}.vtt`;
-    await uploadStorageObject(token, SUBTITLE_BUCKET, subtitlePath, new TextEncoder().encode(vtt), "text/vtt;charset=utf-8");
-
-    return {
-      subtitleUrl: `${getStoragePublicUrl(SUBTITLE_BUCKET, subtitlePath)}?v=${Date.now()}`,
-      subtitlePath,
-      subtitleStatus: "generated",
-      subtitleMessage: "字幕：已生成",
-      timedSegments,
-      durationSeconds: resolvedDuration
-    };
-  } catch (error) {
-    console.error("[video-subtitle-generate]", error);
-    return {
-      subtitleStatus: "failed",
-      subtitleMessage: "字幕生成失败，视频仍可正常播放。"
-    };
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -219,15 +153,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const subtitle = await createAndUploadSubtitle({
-      token: auth.token,
-      userId: auth.user.id,
-      projectId: parsedBody.projectId,
-      taskId: parsedBody.taskId,
-      script: result.script,
-      durationSeconds: result.audioDurationSeconds || result.videoDurationSeconds
-    });
-
     const parts = buildVideoParts({
       title: parsedBody.topic,
       status: "completed",
@@ -239,12 +164,7 @@ export async function POST(request: NextRequest) {
       difficulty: parsedBody.difficulty,
       style: parsedBody.style,
       videoUrl: result.videoUrl,
-      audioUrl: result.audioUrl,
-      script: result.script,
-      subtitleUrl: subtitle.subtitleUrl,
-      subtitleFormat: subtitle.subtitleUrl ? "vtt" : undefined,
-      subtitleStatus: subtitle.subtitleStatus,
-      subtitleMessage: subtitle.subtitleMessage
+      script: result.script
     });
     const content = `视频生成完成：${parsedBody.topic}`;
     await updateMessage(auth.token, parsedBody.messageId, content, {
@@ -259,15 +179,7 @@ export async function POST(request: NextRequest) {
         difficulty: parsedBody.difficulty,
         style: parsedBody.style,
         videoUrl: result.videoUrl,
-        audioUrl: result.audioUrl,
         script: result.script,
-        subtitleUrl: subtitle.subtitleUrl,
-        subtitlePath: subtitle.subtitlePath,
-        subtitleFormat: subtitle.subtitleUrl ? "vtt" : undefined,
-        subtitleStatus: subtitle.subtitleStatus,
-        subtitleMessage: subtitle.subtitleMessage,
-        timedSegments: subtitle.timedSegments,
-        subtitleDurationSeconds: subtitle.durationSeconds,
         completedAt: new Date().toISOString()
       }
     }, "xfyun-avatar-video");
@@ -289,15 +201,7 @@ export async function POST(request: NextRequest) {
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style,
-        script: result.script,
-        audioUrl: result.audioUrl,
-        subtitleUrl: subtitle.subtitleUrl,
-        subtitlePath: subtitle.subtitlePath,
-        subtitleFormat: subtitle.subtitleUrl ? "vtt" : undefined,
-        subtitleStatus: subtitle.subtitleStatus,
-        subtitleMessage: subtitle.subtitleMessage,
-        timedSegments: subtitle.timedSegments,
-        subtitleDurationSeconds: subtitle.durationSeconds
+        script: result.script
       }
     });
 

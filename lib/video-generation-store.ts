@@ -21,12 +21,7 @@ export function buildVideoParts({
   difficulty,
   style,
   videoUrl,
-  audioUrl,
   script,
-  subtitleUrl,
-  subtitleFormat,
-  subtitleStatus,
-  subtitleMessage,
   error
 }: {
   title: string;
@@ -39,12 +34,7 @@ export function buildVideoParts({
   difficulty: VideoDifficulty;
   style: VideoStyle;
   videoUrl?: string;
-  audioUrl?: string;
   script?: string;
-  subtitleUrl?: string;
-  subtitleFormat?: "vtt";
-  subtitleStatus?: "generated" | "missing-script" | "failed";
-  subtitleMessage?: string;
   error?: string;
 }) {
   return [
@@ -58,14 +48,9 @@ export function buildVideoParts({
       type: "video",
       title,
       url: videoUrl,
-      audioUrl,
       status,
       progressLabel,
       script,
-      subtitleUrl,
-      subtitleFormat,
-      subtitleStatus,
-      subtitleMessage,
       error,
       taskId,
       taskStatus,
