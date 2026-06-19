@@ -949,6 +949,11 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         return;
       }
 
+      const chatMessageText =
+        !enableVideoGeneration && isVideoGenerationRequest(messageText)
+          ? `用户请求生成视频：${messageText}\n\n当前版本不支持生成视频。请不要创建视频任务，不要输出分镜脚本或制作流程，直接用文字讲解用户真正想学习的主题，并在回答开头用小括号备注“当前版本不支持生成视频”。`
+          : messageText;
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -956,7 +961,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          message: messageText,
+          message: chatMessageText,
           projectId: activeProject.id,
           conversationId: activeProject.conversationId,
           projectName: activeProject.name,

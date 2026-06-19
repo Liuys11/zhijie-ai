@@ -322,7 +322,7 @@ function MediaPlaceholder({
 
   if (part.type === "video") {
     const isChecking = checkingVideoMessageIds?.has(message.id) || false;
-    const videoScriptPrompt = `请把这个主题整理成可演示的微课脚本、分镜大纲、旁白字幕稿和课件素材清单：${part.title}`;
+    const videoTextPrompt = `请直接用文字讲解这个主题，并在开头用小括号备注“当前版本不支持生成视频”：${part.title}`;
     const downloadVideo = () => {
       if (!part.url) return;
       const link = document.createElement("a");
@@ -333,20 +333,36 @@ function MediaPlaceholder({
       link.click();
     };
 
+    if (!enableVideoGeneration && !part.url) {
+      return (
+        <div className="generated-block">
+          <div className="generated-block-header">
+            <strong>{part.title}</strong>
+            <span>
+              <button type="button" onClick={() => onSendMessage?.(videoTextPrompt)}>
+                <RefreshCw size={14} /> 生成文字讲解
+              </button>
+            </span>
+          </div>
+          <p className="generated-note">（当前版本不支持生成视频）可以直接生成文字讲解，避免演示时长时间等待视频队列。</p>
+        </div>
+      );
+    }
+
     return (
       <div className="generated-block">
         <div className="generated-block-header">
           <strong>{part.title}</strong>
           <span>
-            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `重新生成教学视频：${part.title}` : videoScriptPrompt)}>
-              <RefreshCw size={14} /> {enableVideoGeneration ? "重新生成" : "生成脚本"}
+            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `重新生成教学视频：${part.title}` : videoTextPrompt)}>
+              <RefreshCw size={14} /> {enableVideoGeneration ? "重新生成" : "生成文字讲解"}
             </button>
             {enableVideoGeneration && part.status === "generating" && (
               <button type="button" onClick={() => onCheckVideoStatus?.(message)} disabled={isChecking}>
                 <RefreshCw size={14} /> {isChecking ? "查询中..." : "继续查询"}
               </button>
             )}
-            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `请按这个意见修改教学视频：${part.title}` : videoScriptPrompt)}>
+            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `请按这个意见修改教学视频：${part.title}` : videoTextPrompt)}>
               继续修改
             </button>
             {part.url && (
