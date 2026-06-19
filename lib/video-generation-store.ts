@@ -21,8 +21,6 @@ export function buildVideoParts({
   lastCheckedAt,
   pollCount,
   elapsedMs,
-  providerStatusLabel,
-  providerStatusDetail,
   duration,
   difficulty,
   style,
@@ -45,8 +43,6 @@ export function buildVideoParts({
   lastCheckedAt?: string;
   pollCount?: number;
   elapsedMs?: number;
-  providerStatusLabel?: string;
-  providerStatusDetail?: string;
   duration: VideoDurationOption;
   difficulty: VideoDifficulty;
   style: VideoStyle;
@@ -86,8 +82,6 @@ export function buildVideoParts({
       lastCheckedAt,
       pollCount,
       elapsedMs,
-      providerStatusLabel,
-      providerStatusDetail,
       duration,
       difficulty,
       style
