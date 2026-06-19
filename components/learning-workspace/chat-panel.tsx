@@ -173,7 +173,7 @@ export function ChatPanel({
               onSendMessage();
             }
           }}
-          placeholder="直接提问，或让知界 AI 生成公式讲解、思维导图、数据图表、教学插图和微课视频..."
+          placeholder="直接提问，或让知界 AI 生成公式讲解、思维导图、数据图表和教学插图..."
           rows={3}
         />
         <div className="composer-toolbar">
@@ -196,9 +196,6 @@ export function ChatPanel({
               </button>
               <button type="button" onClick={() => onInputChange("画一个思维导图：")} title="生成思维导图">
                 <Sparkles size={16} /> 导图
-              </button>
-              <button type="button" onClick={() => onInputChange("生成一个 1 分钟教学视频：")} title="生成教学视频">
-                <FileText size={16} /> 视频
               </button>
             </span>
             {isRecording && <span className="recording-label">正在录音（演示）</span>}

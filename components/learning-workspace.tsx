@@ -89,6 +89,7 @@ const imagePollIntervalMs = 3000;
 const imagePollMaxCount = 40;
 const videoPollIntervalMs = 5000;
 const videoAutoPollMaxMs = 10 * 60 * 1000;
+const enableVideoGeneration = process.env.NEXT_PUBLIC_ENABLE_VIDEO_GENERATION === "true";
 
 function getImageTaskFromMessage(message: Message) {
   const imagePart = message.parts?.find((part) => part.type === "image" && part.taskId && part.status === "generating");
@@ -102,6 +103,8 @@ function getImageTaskFromMessage(message: Message) {
 }
 
 function getVideoTaskFromMessage(message: Message) {
+  if (!enableVideoGeneration) return null;
+
   const videoPart = message.parts?.find((part) => part.type === "video" && part.taskId && (part.status === "generating" || part.status === "queued"));
   if (!videoPart || videoPart.type !== "video" || !videoPart.taskId) return null;
 
@@ -873,7 +876,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     const assistantMessageId = crypto.randomUUID();
 
     try {
-      if (isVideoGenerationRequest(messageText)) {
+      if (enableVideoGeneration && isVideoGenerationRequest(messageText)) {
         const response = await fetch("/api/video/generate", {
           method: "POST",
           headers: {

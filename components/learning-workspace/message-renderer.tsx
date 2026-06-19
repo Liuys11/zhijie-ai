@@ -30,6 +30,8 @@ const markdownComponents: Components = {
   }
 };
 
+const enableVideoGeneration = process.env.NEXT_PUBLIC_ENABLE_VIDEO_GENERATION === "true";
+
 function parseJsonChart(raw: string): ChartOption | null {
   try {
     const parsed = JSON.parse(raw) as ChartOption;
@@ -320,6 +322,7 @@ function MediaPlaceholder({
 
   if (part.type === "video") {
     const isChecking = checkingVideoMessageIds?.has(message.id) || false;
+    const videoScriptPrompt = `请把这个主题整理成可演示的微课脚本、分镜大纲、旁白字幕稿和课件素材清单：${part.title}`;
     const downloadVideo = () => {
       if (!part.url) return;
       const link = document.createElement("a");
@@ -335,20 +338,22 @@ function MediaPlaceholder({
         <div className="generated-block-header">
           <strong>{part.title}</strong>
           <span>
-            <button type="button" onClick={() => onSendMessage?.(`重新生成教学视频：${part.title}`)}>
-              <RefreshCw size={14} /> 重新生成
+            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `重新生成教学视频：${part.title}` : videoScriptPrompt)}>
+              <RefreshCw size={14} /> {enableVideoGeneration ? "重新生成" : "生成脚本"}
             </button>
-            {part.status === "generating" && (
+            {enableVideoGeneration && part.status === "generating" && (
               <button type="button" onClick={() => onCheckVideoStatus?.(message)} disabled={isChecking}>
                 <RefreshCw size={14} /> {isChecking ? "查询中..." : "继续查询"}
               </button>
             )}
-            <button type="button" onClick={() => onSendMessage?.(`请按这个意见修改教学视频：${part.title}`)}>
+            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `请按这个意见修改教学视频：${part.title}` : videoScriptPrompt)}>
               继续修改
             </button>
-            <button type="button" onClick={downloadVideo} disabled={!part.url}>
-              <Download size={14} /> 下载
-            </button>
+            {part.url && (
+              <button type="button" onClick={downloadVideo}>
+                <Download size={14} /> 下载
+              </button>
+            )}
           </span>
         </div>
         {(part.duration || part.difficulty || part.style) && (
@@ -358,7 +363,7 @@ function MediaPlaceholder({
             {part.style ? `；风格：${part.style}` : ""}
           </p>
         )}
-        {(part.taskIdMasked || part.lastCheckedAt || part.providerStatusLabel || part.providerStatusDetail) && (
+        {enableVideoGeneration && (part.taskIdMasked || part.lastCheckedAt || part.providerStatusLabel || part.providerStatusDetail) && (
           <p className="generated-note">
             {part.taskIdMasked ? `任务：${part.taskIdMasked}` : ""}
             {part.elapsedMs ? `；已等待：${Math.floor(part.elapsedMs / 60000)}分${String(Math.floor((part.elapsedMs % 60000) / 1000)).padStart(2, "0")}秒` : ""}
@@ -371,7 +376,9 @@ function MediaPlaceholder({
           <video className="generated-video" src={part.url} controls />
         ) : (
           <p className={part.status === "failed" ? "generated-error" : "generated-note"}>
-            {part.error || part.progressLabel || "微课视频任务结构已准备，视频生成服务尚未配置。"}
+            {enableVideoGeneration
+              ? part.error || part.progressLabel || "微课视频任务结构已准备，视频生成服务尚未配置。"
+              : "视频生成服务排队较慢，当前演示版已暂停真实 MP4 生成。建议先生成微课脚本、分镜大纲和字幕稿用于展示。"}
           </p>
         )}
         {part.script && <MarkdownPart content={part.script} />}
