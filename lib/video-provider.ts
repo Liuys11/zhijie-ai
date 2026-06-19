@@ -516,7 +516,9 @@ export async function createXfyunVideoTask(input: CreateVideoTaskInput, config: 
 }
 
 export async function queryXfyunVideoTask(taskId: string, config: VideoProviderConfig): Promise<XfyunVideoQueryResult> {
+  const queryStartedAt = Date.now();
   const response = await callXfyunVideo(config.queryUrl, config, buildQueryBody(config, taskId));
+  const elapsedMs = Date.now() - queryStartedAt;
   const header = getHeader(response.data);
   const payload = asRecord(response.data.payload);
   const taskStatus = getTaskStatus(response.data);
@@ -527,17 +529,21 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
   const videoDurationSeconds = getPayloadDuration(response.data, "video");
 
   console.info("[xfyun-video-query]", {
+    taskIdMasked: maskTaskId(taskId),
+    elapsedMs,
     httpStatus: response.status,
-    code: readString(header, "code"),
-    message: readString(header, "message"),
-    taskStatus,
+    headerCode: readString(header, "code"),
+    headerMessage: readString(header, "message"),
+    rawTaskStatus: String(taskStatus ?? ""),
+    hasPayload: Boolean(payload),
+    hasVideo: Boolean(payload?.video),
+    hasText: Boolean(payload?.text),
     payloadKeys: Object.keys(payload || {}),
     videoPayloadKind: videoPayload.kind,
     videoTextLength: videoPayload.textLength,
     hasVideoUrl: Boolean(videoUrl),
     audioDurationSeconds,
-    videoDurationSeconds,
-    taskId: maskTaskId(taskId)
+    videoDurationSeconds
   });
 
   assertSuccess(response.data, "查询任务");

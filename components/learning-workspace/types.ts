@@ -71,6 +71,10 @@ export type MessagePart =
       taskId?: string;
       taskStatus?: string;
       provider?: string;
+      startedAt?: string;
+      lastCheckedAt?: string;
+      pollCount?: number;
+      elapsedMs?: number;
       duration?: "30s" | "60s" | "90s";
       difficulty?: "入门" | "基础" | "进阶";
       style?: "知识讲解" | "考前复习" | "概念科普" | "案例分析";
