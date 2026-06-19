@@ -165,6 +165,8 @@ export async function POST(request: NextRequest) {
         startedAt,
         pollCount: 0,
         elapsedMs: 0,
+        providerStatusLabel: "讯飞状态：已创建/排队中（1）",
+        providerStatusDetail: "任务已创建，等待首次查询返回讯飞处理状态。",
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style

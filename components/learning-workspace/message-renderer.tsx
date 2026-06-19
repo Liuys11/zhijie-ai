@@ -358,6 +358,12 @@ function MediaPlaceholder({
             {part.style ? `；风格：${part.style}` : ""}
           </p>
         )}
+        {(part.providerStatusLabel || part.providerStatusDetail) && (
+          <p className="generated-note">
+            {part.providerStatusLabel}
+            {part.providerStatusDetail ? `?${part.providerStatusDetail}` : ""}
+          </p>
+        )}
         {part.url ? (
           <>
             <video className="generated-video" src={part.url} controls>

@@ -39,6 +39,11 @@ export type XfyunVideoQueryResult = {
   status: XfyunVideoStatus;
   taskStatus: string;
   message: string;
+  headerCode: string;
+  headerMessage: string;
+  hasPayload: boolean;
+  hasVideo: boolean;
+  hasText: boolean;
   hasVideoUrl: boolean;
   videoUrl?: string;
   script?: string;
@@ -522,6 +527,11 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
   const header = getHeader(response.data);
   const payload = asRecord(response.data.payload);
   const taskStatus = getTaskStatus(response.data);
+  const headerCode = readString(header, "code");
+  const headerMessage = readString(header, "message");
+  const hasPayload = Boolean(payload);
+  const hasVideo = Boolean(payload?.video);
+  const hasText = Boolean(payload?.text);
   const textPayload = readPayloadValue(response.data, "text");
   const videoPayload = readPayloadValue(response.data, "video");
   const videoUrl = extractUrlFromPayload(response.data, "video");
@@ -532,12 +542,12 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
     taskIdMasked: maskTaskId(taskId),
     elapsedMs,
     httpStatus: response.status,
-    headerCode: readString(header, "code"),
-    headerMessage: readString(header, "message"),
+    headerCode,
+    headerMessage,
     rawTaskStatus: String(taskStatus ?? ""),
-    hasPayload: Boolean(payload),
-    hasVideo: Boolean(payload?.video),
-    hasText: Boolean(payload?.text),
+    hasPayload,
+    hasVideo,
+    hasText,
     payloadKeys: Object.keys(payload || {}),
     videoPayloadKind: videoPayload.kind,
     videoTextLength: videoPayload.textLength,
@@ -555,6 +565,11 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
       status,
       taskStatus,
       message: status === "created" ? "视频正在排队，请稍候。" : "正在生成数字人视频，请稍候。",
+      headerCode,
+      headerMessage,
+      hasPayload,
+      hasVideo,
+      hasText,
       hasVideoUrl: false
     };
   }
@@ -565,6 +580,11 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
       status: "processing",
       taskStatus,
       message: "视频已生成，正在获取播放地址，请继续查询。",
+      headerCode,
+      headerMessage,
+      hasPayload,
+      hasVideo,
+      hasText,
       hasVideoUrl: false,
       script: textPayload.value || undefined,
       imageUrl: extractUrlFromPayload(response.data, "image") || undefined,
@@ -580,6 +600,11 @@ export async function queryXfyunVideoTask(taskId: string, config: VideoProviderC
     status: "completed",
     taskStatus,
     message: "视频生成完成。",
+      headerCode,
+      headerMessage,
+      hasPayload,
+      hasVideo,
+      hasText,
     hasVideoUrl: true,
     videoUrl,
     script: textPayload.value || undefined,

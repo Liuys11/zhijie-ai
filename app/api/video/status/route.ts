@@ -88,6 +88,27 @@ function withQueryStatusLabel(message: string, elapsedMs: number, lastCheckedAt:
   return `${message} 已等待 ${formatElapsed(elapsedMs)}，最近查询 ${lastCheckedAt}`;
 }
 
+function getProviderStatusLabel(taskStatus: string) {
+  if (taskStatus === "1") return "讯飞状态：已创建/排队中（1）";
+  if (taskStatus === "2") return "讯飞状态：处理中（2）";
+  if (taskStatus === "3") return "讯飞状态：已完成（3）";
+  if (taskStatus === "4") return "讯飞状态：最终完成（4）";
+  return `讯飞状态：未知（${taskStatus || "-"}）`;
+}
+
+function getProviderStatusDetail(result: {
+  headerCode: string;
+  headerMessage: string;
+  hasPayload: boolean;
+  hasVideo: boolean;
+  hasText: boolean;
+  hasVideoUrl: boolean;
+}) {
+  const code = result.headerCode || "-";
+  const message = result.headerMessage || "-";
+  return `header.code=${code}，message=${message}，payload=${result.hasPayload ? "有" : "无"}，video=${result.hasVideo ? "有" : "无"}，videoUrl=${result.hasVideoUrl ? "有" : "无"}，text=${result.hasText ? "有" : "无"}`;
+}
+
 function isDuration(value: string): value is VideoDurationOption {
   return value === "30s" || value === "60s" || value === "90s";
 }
@@ -213,6 +234,8 @@ export async function POST(request: NextRequest) {
     const result = await queryXfyunVideoTask(parsedBody.taskId, videoConfig);
     const elapsedMs = getElapsedMs(startedAt);
     const autoPollExpired = elapsedMs >= MAX_AUTO_VIDEO_POLL_MS;
+    const providerStatusLabel = getProviderStatusLabel(result.taskStatus);
+    const providerStatusDetail = getProviderStatusDetail(result);
 
     console.info("[video-status-query]", {
       taskIdMasked: parsedBody.taskId.length <= 8 ? "***" : `${parsedBody.taskId.slice(0, 4)}...${parsedBody.taskId.slice(-4)}`,
@@ -239,6 +262,8 @@ export async function POST(request: NextRequest) {
         lastCheckedAt,
         pollCount: parsedBody.pollCount,
         elapsedMs,
+        providerStatusLabel,
+        providerStatusDetail,
         duration: parsedBody.duration,
         difficulty: parsedBody.difficulty,
         style: parsedBody.style,
@@ -259,6 +284,8 @@ export async function POST(request: NextRequest) {
           startedAt,
           elapsedMs,
           autoPollExpired,
+          providerStatusLabel,
+          providerStatusDetail,
           lastCheckedAt: new Date().toISOString()
         }
       }, "xfyun-avatar-video");
@@ -297,6 +324,8 @@ export async function POST(request: NextRequest) {
       lastCheckedAt,
       pollCount: parsedBody.pollCount,
       elapsedMs,
+      providerStatusLabel,
+      providerStatusDetail,
       duration: parsedBody.duration,
       difficulty: parsedBody.difficulty,
       style: parsedBody.style,
@@ -324,6 +353,8 @@ export async function POST(request: NextRequest) {
         elapsedMs,
         pollCount: parsedBody.pollCount,
         lastCheckedAt: new Date().toISOString(),
+        providerStatusLabel,
+        providerStatusDetail,
         videoUrl: result.videoUrl,
         audioUrl: result.audioUrl,
         script: result.script,
@@ -359,6 +390,8 @@ export async function POST(request: NextRequest) {
         elapsedMs,
         pollCount: parsedBody.pollCount,
         lastCheckedAt: new Date().toISOString(),
+        providerStatusLabel,
+        providerStatusDetail,
         script: result.script,
         audioUrl: result.audioUrl,
         subtitleUrl: subtitle.subtitleUrl,
