@@ -399,6 +399,73 @@ function describePayloadShape(value: unknown): unknown {
   };
 }
 
+function describeValueType(value: unknown) {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "null";
+  return typeof value;
+}
+
+function collectPayloadPaths(
+  value: unknown,
+  path = "$",
+  depth = 0,
+  paths: Array<{
+    path: string;
+    type: string;
+    length?: number;
+    keys?: string[];
+    looksLikeUrl?: boolean;
+    looksLikeBase64?: boolean;
+    startsWith?: string;
+  }> = []
+) {
+  if (paths.length >= 80 || depth > 6) return paths;
+
+  if (typeof value === "string") {
+    paths.push({
+      path,
+      type: "string",
+      length: value.length,
+      looksLikeUrl: /^https?:\/\//i.test(value),
+      looksLikeBase64: /^[A-Za-z0-9+/=]+$/.test(value.slice(0, 80)),
+      startsWith: value.slice(0, 24)
+    });
+    return paths;
+  }
+
+  if (Array.isArray(value)) {
+    paths.push({
+      path,
+      type: "array",
+      length: value.length
+    });
+    value.slice(0, 5).forEach((item, index) => {
+      collectPayloadPaths(item, `${path}[${index}]`, depth + 1, paths);
+    });
+    return paths;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    paths.push({
+      path,
+      type: describeValueType(value)
+    });
+    return paths;
+  }
+
+  const keys = Object.keys(record);
+  paths.push({
+    path,
+    type: "object",
+    keys: keys.slice(0, 20)
+  });
+  keys.slice(0, 20).forEach((key) => {
+    collectPayloadPaths(record[key], `${path}.${key}`, depth + 1, paths);
+  });
+  return paths;
+}
+
 function findFirstImagePayload(value: unknown): ImagePayloadResult | null {
   if (typeof value === "string") {
     if (looksLikeImageUrl(value)) return { kind: "url", value };
@@ -600,6 +667,7 @@ export async function queryXfyunHiDreamTask(
     hasResultText: Boolean(resultText),
     hasPayload: Boolean(queryResult),
     payloadShape: status === "completed" ? describePayloadShape(queryResult) : undefined,
+    payloadPaths: status === "completed" ? collectPayloadPaths(queryResult) : undefined,
     imagePayloadKind: imagePayload?.kind,
     hasImagePayload: Boolean(imagePayload),
     taskId: maskTaskId(taskId)
