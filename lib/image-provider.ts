@@ -47,6 +47,12 @@ export type XfyunHiDreamQueryResult = {
   message: string;
   image?: GeneratedImage;
   hasResultText: boolean;
+  diagnostics?: {
+    subTaskStatus?: number;
+    taskCompletion?: number;
+    hasImageField?: boolean;
+    hasWatermarkedImageField?: boolean;
+  };
 };
 
 const DEFAULT_IMAGE_BASE_URL = "https://api.openai.com/v1";
@@ -466,6 +472,29 @@ function collectPayloadPaths(
   return paths;
 }
 
+function readNumber(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getFirstXfyunResultItem(value: unknown) {
+  if (Array.isArray(value)) return asRecord(value[0]);
+  return asRecord(value);
+}
+
+function getXfyunResultDiagnostics(value: unknown) {
+  const firstItem = getFirstXfyunResultItem(value);
+  const imageValue = readString(firstItem, "image");
+  const watermarkedImageValue = readString(firstItem, "image_wm");
+
+  return {
+    subTaskStatus: readNumber(firstItem, "task_status"),
+    taskCompletion: readNumber(firstItem, "task_completion"),
+    hasImageField: imageValue.length > 0,
+    hasWatermarkedImageField: watermarkedImageValue.length > 0
+  };
+}
+
 function findFirstImagePayload(value: unknown): ImagePayloadResult | null {
   if (typeof value === "string") {
     if (looksLikeImageUrl(value)) return { kind: "url", value };
@@ -606,7 +635,9 @@ export async function createXfyunHiDreamTask(
   config: XfyunHiDreamImageProviderConfig
 ): Promise<XfyunHiDreamTask> {
   const createPayload = {
+    image: [],
     prompt,
+    negative_prompt: "",
     aspect_ratio: config.aspectRatio,
     resolution: config.resolution,
     img_count: config.imageCount
@@ -657,6 +688,7 @@ export async function queryXfyunHiDreamTask(
   const status = normalizeTaskStatus(taskStatus);
   const queryResult = decodeXfyunPayloadJson(queryResponse.data);
   const imagePayload = status === "completed" ? findFirstImagePayload(queryResult) : null;
+  const diagnostics = status === "completed" ? getXfyunResultDiagnostics(queryResult) : undefined;
 
   console.info("[hidream-query]", {
     pollCount,
@@ -668,6 +700,10 @@ export async function queryXfyunHiDreamTask(
     hasPayload: Boolean(queryResult),
     payloadShape: status === "completed" ? describePayloadShape(queryResult) : undefined,
     payloadPaths: status === "completed" ? collectPayloadPaths(queryResult) : undefined,
+    subTaskStatus: diagnostics?.subTaskStatus,
+    taskCompletion: diagnostics?.taskCompletion,
+    hasImageField: diagnostics?.hasImageField,
+    hasWatermarkedImageField: diagnostics?.hasWatermarkedImageField,
     imagePayloadKind: imagePayload?.kind,
     hasImagePayload: Boolean(imagePayload),
     taskId: maskTaskId(taskId)
@@ -687,10 +723,11 @@ export async function queryXfyunHiDreamTask(
   if (!imagePayload) {
     return {
       taskId,
-      status: "processing",
+      status: "failed",
       taskStatus,
-      message: "讯飞图片任务已完成，但未返回可解析的图片地址。请稍后继续查询，或查看 Vercel 日志中的 payloadShape。",
-      hasResultText: Boolean(resultText)
+      message: "讯飞图片任务已完成，但本次没有返回可用图片。请点击重试重新生成。",
+      hasResultText: Boolean(resultText),
+      diagnostics
     };
   }
 
@@ -700,7 +737,8 @@ export async function queryXfyunHiDreamTask(
     taskStatus,
     message: "图片生成完成。",
     image: await materializeImagePayload(imagePayload, config),
-    hasResultText: Boolean(resultText)
+    hasResultText: Boolean(resultText),
+    diagnostics
   };
 }
 

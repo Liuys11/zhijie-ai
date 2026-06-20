@@ -126,6 +126,7 @@ export async function POST(request: NextRequest) {
       taskStatus: result.taskStatus,
       hasResultText: result.hasResultText,
       hasImage: Boolean(result.image),
+      diagnostics: result.diagnostics,
       provider: imageConfig.provider
     });
     if (!result.image) {
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
         : result.message;
       const parts = buildImageParts({
         prompt: parsedBody.prompt,
-        status: "generating",
+        status: result.status === "failed" ? "failed" : "generating",
         error: timeoutHint,
         taskId: parsedBody.taskId,
         taskStatus: result.taskStatus,
