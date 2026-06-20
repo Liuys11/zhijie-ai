@@ -352,10 +352,59 @@ function looksLikeBase64Image(value: string) {
   return normalized.length > 200 && /^[A-Za-z0-9+/=]+$/.test(normalized);
 }
 
+function parseJsonLikeString(value: string): unknown | null {
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return null;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function parseBase64JsonLikeString(value: string): unknown | null {
+  const normalized = value.replace(/^data:application\/json;base64,/, "").trim();
+  if (normalized.length < 16 || !/^[A-Za-z0-9+/=]+$/.test(normalized)) return null;
+  try {
+    const decoded = Buffer.from(normalized, "base64").toString("utf8").trim();
+    return parseJsonLikeString(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function describePayloadShape(value: unknown): unknown {
+  if (typeof value === "string") {
+    return {
+      type: "string",
+      length: value.length,
+      looksLikeUrl: /^https?:\/\//i.test(value),
+      looksLikeBase64: /^[A-Za-z0-9+/=]+$/.test(value.slice(0, 80))
+    };
+  }
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      length: value.length,
+      first: value.length ? describePayloadShape(value[0]) : null
+    };
+  }
+  const record = asRecord(value);
+  if (!record) return { type: value === null ? "null" : typeof value };
+  const keys = Object.keys(record);
+  return {
+    type: "object",
+    keys: keys.slice(0, 20),
+    children: Object.fromEntries(keys.slice(0, 8).map((key) => [key, describePayloadShape(record[key])]))
+  };
+}
+
 function findFirstImagePayload(value: unknown): ImagePayloadResult | null {
   if (typeof value === "string") {
     if (looksLikeImageUrl(value)) return { kind: "url", value };
     if (looksLikeBase64Image(value)) return { kind: "base64", value: value.replace(/^data:image\/(?:png|jpeg|jpg|webp);base64,/, "") };
+    const jsonValue = parseJsonLikeString(value) || parseBase64JsonLikeString(value);
+    if (jsonValue) return findFirstImagePayload(jsonValue);
     return null;
   }
 
@@ -370,7 +419,30 @@ function findFirstImagePayload(value: unknown): ImagePayloadResult | null {
   const record = asRecord(value);
   if (!record) return null;
 
-  const preferredKeys = ["url", "image_url", "imageUrl", "image", "b64_json", "base64", "content"];
+  const preferredKeys = [
+    "url",
+    "urls",
+    "image_url",
+    "image_urls",
+    "imageUrl",
+    "imageUrls",
+    "file_url",
+    "fileUrl",
+    "download_url",
+    "downloadUrl",
+    "resource_url",
+    "resourceUrl",
+    "result_url",
+    "resultUrl",
+    "img_url",
+    "imgUrl",
+    "image",
+    "images",
+    "b64_json",
+    "base64",
+    "content",
+    "text"
+  ];
   for (const key of preferredKeys) {
     const image = findFirstImagePayload(record[key]);
     if (image) return image;
@@ -516,6 +588,8 @@ export async function queryXfyunHiDreamTask(
   const taskStatus = getHeaderTaskStatus(queryResponse.data);
   const resultText = getXfyunResultText(queryResponse.data);
   const status = normalizeTaskStatus(taskStatus);
+  const queryResult = decodeXfyunPayloadJson(queryResponse.data);
+  const imagePayload = status === "completed" ? findFirstImagePayload(queryResult) : null;
 
   console.info("[hidream-query]", {
     pollCount,
@@ -524,6 +598,10 @@ export async function queryXfyunHiDreamTask(
     message: readString(header, "message"),
     taskStatus,
     hasResultText: Boolean(resultText),
+    hasPayload: Boolean(queryResult),
+    payloadShape: status === "completed" ? describePayloadShape(queryResult) : undefined,
+    imagePayloadKind: imagePayload?.kind,
+    hasImagePayload: Boolean(imagePayload),
     taskId: maskTaskId(taskId)
   });
 
@@ -538,14 +616,12 @@ export async function queryXfyunHiDreamTask(
     };
   }
 
-  const queryResult = decodeXfyunPayloadJson(queryResponse.data);
-  const imagePayload = findFirstImagePayload(queryResult);
   if (!imagePayload) {
     return {
       taskId,
       status: "processing",
       taskStatus,
-      message: "讯飞图片任务已完成但结果还未返回图片，请继续查询。",
+      message: "讯飞图片任务已完成，但未返回可解析的图片地址。请稍后继续查询，或查看 Vercel 日志中的 payloadShape。",
       hasResultText: Boolean(resultText)
     };
   }

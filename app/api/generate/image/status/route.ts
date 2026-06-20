@@ -38,6 +38,11 @@ function asNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function maskTaskId(taskId: string) {
+  if (taskId.length <= 8) return "***";
+  return `${taskId.slice(0, 4)}...${taskId.slice(-4)}`;
+}
+
 function parseBody(rawBody: unknown): ParsedBody | { error: string } {
   if (typeof rawBody !== "object" || rawBody === null) return { error: "请求体格式不正确" };
 
@@ -87,7 +92,22 @@ export async function POST(request: NextRequest) {
       return jsonError("当前图片服务不是讯飞 HiDream，无法查询该任务。", 400);
     }
 
+    console.info("[image-build-version]", {
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || "local",
+      environment: process.env.VERCEL_ENV || "local"
+    });
+
     const result = await queryXfyunHiDreamTask(parsedBody.taskId, imageConfig, parsedBody.pollCount);
+    console.info("[hidream-status-api]", {
+      messageId: parsedBody.messageId,
+      taskId: maskTaskId(parsedBody.taskId),
+      pollCount: parsedBody.pollCount,
+      status: result.status,
+      taskStatus: result.taskStatus,
+      hasResultText: result.hasResultText,
+      hasImage: Boolean(result.image),
+      provider: imageConfig.provider
+    });
     if (!result.image) {
       const timeoutHint = parsedBody.pollCount * imageConfig.pollIntervalMs >= imageConfig.timeoutMs
         ? "讯飞图片任务处理时间较长，请点击继续查询。"

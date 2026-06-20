@@ -245,6 +245,8 @@ function buildInstructions(projectName: string, mode: string, resources: ChatRes
 ${routeText}
 ${buildModeInstruction(mode)}
 
+Mermaid output rule: when using Mermaid, put only valid Mermaid code inside the mermaid fenced block. Do not include explanation text inside the block. Quote Chinese node labels when they contain punctuation.
+
 多模态输出规则：
 1. 普通解释、公式、推导使用 Markdown；数学公式使用 $...$ 或 $$...$$。
 2. 用户要求流程图、结构图、思维导图、知识图谱、学习路线时，优先输出 Mermaid fenced block，例如 \`\`\`mermaid。

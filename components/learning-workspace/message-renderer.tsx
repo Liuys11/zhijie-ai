@@ -14,6 +14,7 @@ type MessageRendererProps = {
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
   onCheckVideoStatus?: (message: Message) => void;
+  checkingImageMessageIds?: Set<string>;
   checkingVideoMessageIds?: Set<string>;
 };
 
@@ -31,6 +32,37 @@ const markdownComponents: Components = {
 };
 
 const enableVideoGeneration = process.env.NEXT_PUBLIC_ENABLE_VIDEO_GENERATION === "true";
+const mermaidStartPattern =
+  /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline|gitGraph|quadrantChart|xychart-beta)\b/i;
+
+function stripMermaidFence(raw: string) {
+  return raw
+    .trim()
+    .replace(/^```mermaid\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+}
+
+function normalizeMermaidContent(raw: string) {
+  const lines = stripMermaidFence(raw)
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd());
+  const firstMermaidLineIndex = lines.findIndex((line) => mermaidStartPattern.test(line.trim()));
+  if (firstMermaidLineIndex < 0) {
+    return {
+      code: lines.join("\n").trim(),
+      isValidStart: false,
+      firstLine: lines.find((line) => line.trim())?.trim() || ""
+    };
+  }
+
+  const code = lines.slice(firstMermaidLineIndex).join("\n").trim();
+  return {
+    code,
+    isValidStart: true,
+    firstLine: code.split(/\r?\n/).find((line) => line.trim())?.trim() || ""
+  };
+}
 
 function parseJsonChart(raw: string): ChartOption | null {
   try {
@@ -56,7 +88,7 @@ function partsFromContent(content: string): MessagePart[] {
     const kind = match[1].toLowerCase();
     const body = match[2].trim();
     if (kind === "mermaid") {
-      parts.push({ type: "mermaid", content: body });
+      parts.push({ type: "mermaid", content: normalizeMermaidContent(body).code || body });
     } else {
       const option = parseJsonChart(body);
       if (option) {
@@ -94,10 +126,21 @@ function MermaidPart({ content, title }: { content: string; title?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState("");
   const [error, setError] = useState("");
+  const normalized = useMemo(() => normalizeMermaidContent(content), [content]);
 
   const renderMermaid = useMemo(
     () => async () => {
       setError("");
+      setSvg("");
+      if (!normalized.isValidStart || !normalized.code) {
+        console.warn("[mermaid-render-skip]", {
+          reason: "invalid-start",
+          firstLine: normalized.firstLine.slice(0, 80),
+          length: normalized.code.length
+        });
+        setError("图形代码不是有效的 Mermaid 图形，已保留为代码文本。");
+        return;
+      }
       try {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({
@@ -112,14 +155,19 @@ function MermaidPart({ content, title }: { content: string; title?: string }) {
             fontFamily: "Inter, Microsoft YaHei, sans-serif"
           }
         });
-        const result = await mermaid.render(`zhijie-${id}`, content);
+        console.info("[mermaid-render]", {
+          firstLine: normalized.firstLine.slice(0, 80),
+          length: normalized.code.length
+        });
+        await mermaid.parse(normalized.code);
+        const result = await mermaid.render(`zhijie-${id}`, normalized.code);
         setSvg(result.svg);
       } catch (renderError) {
         console.error(renderError);
         setError("图形渲染失败，请检查 Mermaid 代码格式。");
       }
     },
-    [content, id]
+    [id, normalized]
   );
 
   useEffect(() => {
@@ -185,7 +233,14 @@ function MermaidPart({ content, title }: { content: string; title?: string }) {
           </button>
         </span>
       </div>
-      {error ? <p className="generated-error">{error}</p> : <div ref={containerRef} className="mermaid-stage" dangerouslySetInnerHTML={{ __html: svg }} />}
+      {error ? (
+        <>
+          <p className="generated-error">{error}</p>
+          <MarkdownPart content={`\`\`\`mermaid\n${normalized.code || content.trim()}\n\`\`\``} />
+        </>
+      ) : (
+        <div ref={containerRef} className="mermaid-stage" dangerouslySetInnerHTML={{ __html: svg }} />
+      )}
     </div>
   );
 }
@@ -267,6 +322,7 @@ function MediaPlaceholder({
   onSendMessage,
   onCheckImageStatus,
   onCheckVideoStatus,
+  checkingImageMessageIds,
   checkingVideoMessageIds
 }: {
   message: Message;
@@ -274,9 +330,11 @@ function MediaPlaceholder({
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
   onCheckVideoStatus?: (message: Message) => void;
+  checkingImageMessageIds?: Set<string>;
   checkingVideoMessageIds?: Set<string>;
 }) {
   if (part.type === "image") {
+    const isChecking = checkingImageMessageIds?.has(message.id) || false;
     const downloadImage = () => {
       if (!part.url) return;
       const link = document.createElement("a");
@@ -296,8 +354,8 @@ function MediaPlaceholder({
               <RefreshCw size={14} /> 重试
             </button>
             {part.status === "generating" && part.taskId && (
-              <button type="button" onClick={() => onCheckImageStatus?.(message)}>
-                继续查询
+              <button type="button" onClick={() => onCheckImageStatus?.(message)} disabled={isChecking}>
+                {isChecking ? "查询中..." : "继续查询"}
               </button>
             )}
             <button type="button" onClick={() => onSendMessage?.(`请在这张图片描述基础上继续修改：${part.prompt}`)}>
@@ -413,7 +471,7 @@ function MediaPlaceholder({
   return null;
 }
 
-export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, onCheckVideoStatus, checkingVideoMessageIds }: MessageRendererProps) {
+export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, onCheckVideoStatus, checkingImageMessageIds, checkingVideoMessageIds }: MessageRendererProps) {
   const parts = message.parts?.length ? message.parts : partsFromContent(message.content);
 
   return (
@@ -436,6 +494,7 @@ export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, on
             onSendMessage={onSendMessage}
             onCheckImageStatus={onCheckImageStatus}
             onCheckVideoStatus={onCheckVideoStatus}
+            checkingImageMessageIds={checkingImageMessageIds}
             checkingVideoMessageIds={checkingVideoMessageIds}
           />
         );

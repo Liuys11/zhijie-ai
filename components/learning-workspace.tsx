@@ -131,6 +131,18 @@ function replaceMessage(current: Message[], nextMessage: Message) {
   return current.map((message) => (message.id === nextMessage.id ? nextMessage : message));
 }
 
+function hasCompletedImage(message: Message) {
+  return Boolean(message.parts?.some((part) => part.type === "image" && part.status === "completed" && part.url));
+}
+
+function replaceMessageKeepingCompletedImage(current: Message[], nextMessage: Message) {
+  return current.map((message) => {
+    if (message.id !== nextMessage.id) return message;
+    if (hasCompletedImage(message) && !hasCompletedImage(nextMessage)) return message;
+    return nextMessage;
+  });
+}
+
 function maskTaskId(taskId?: string) {
   if (!taskId) return "";
   if (taskId.length <= 8) return "***";
@@ -301,6 +313,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [assessmentError, setAssessmentError] = useState("");
   const [uploadingResource, setUploadingResource] = useState(false);
   const [deletingResourceId, setDeletingResourceId] = useState("");
+  const [checkingImageMessageIds, setCheckingImageMessageIds] = useState<Set<string>>(() => new Set());
   const [checkingVideoMessageIds, setCheckingVideoMessageIds] = useState<Set<string>>(() => new Set());
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
@@ -312,6 +325,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const shouldStickToBottomRef = useRef(true);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imagePollingTasksRef = useRef<Set<string>>(new Set());
+  const imagePollingTimersRef = useRef<Map<string, number>>(new Map());
   const videoPollingTasksRef = useRef<Set<string>>(new Set());
   const videoInFlightTasksRef = useRef<Set<string>>(new Set());
   const videoPollingTimersRef = useRef<Map<string, number>>(new Map());
@@ -606,23 +620,69 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     });
   };
 
+  const setImageMessageChecking = (messageId: string, checking: boolean) => {
+    setCheckingImageMessageIds((current) => {
+      const next = new Set(current);
+      if (checking) {
+        next.add(messageId);
+      } else {
+        next.delete(messageId);
+      }
+      return next;
+    });
+  };
+
   const startImageStatusPolling = useCallback(
-    (message: Message, initialPollCount = 1) => {
+    (message: Message, initialPollCount = 1, options: { manual?: boolean } = {}) => {
       if (!activeProject) return;
 
       const task = getImageTaskFromMessage(message);
-      if (!task) return;
+      console.log("[image-continue-query]", {
+        hasTaskId: Boolean(task?.taskId),
+        taskId: maskTaskId(task?.taskId),
+        messageId: message.id,
+        manual: Boolean(options.manual)
+      });
 
-      const pollingKey = message.id;
-      if (imagePollingTasksRef.current.has(pollingKey)) return;
-      imagePollingTasksRef.current.add(pollingKey);
+      if (!task) {
+        if (options.manual) {
+          const messageText = "未找到该图片任务编号，无法继续查询。";
+          setMessages((current) =>
+            current.map((item) =>
+              item.id === message.id
+                ? {
+                    ...item,
+                    content: messageText,
+                    parts: item.parts?.map((part) =>
+                      part.type === "image"
+                        ? {
+                            ...part,
+                            status: "generating",
+                            error: messageText
+                          }
+                        : part
+                    )
+                  }
+                : item
+            )
+          );
+        }
+        return;
+      }
+
+      const pollingKey = `${message.id}:${task.taskId}`;
 
       const poll = async (currentMessage: Message, pollCount: number) => {
         const currentTask = getImageTaskFromMessage(currentMessage);
         if (!currentTask) {
           imagePollingTasksRef.current.delete(pollingKey);
+          setImageMessageChecking(currentMessage.id, false);
           return;
         }
+
+        if (imagePollingTasksRef.current.has(pollingKey)) return;
+        imagePollingTasksRef.current.add(pollingKey);
+        setImageMessageChecking(currentMessage.id, true);
 
         try {
           const response = await fetch("/api/generate/image/status", {
@@ -646,19 +706,23 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           }
           if (!response.ok || !data.message) throw new Error(data.error || "图片任务查询失败");
 
-          setMessages((current) => replaceMessage(current, data.message as Message));
+          setMessages((current) => replaceMessageKeepingCompletedImage(current, data.message as Message));
 
           if (data.status !== "completed" && pollCount < imagePollMaxCount) {
-            window.setTimeout(() => {
+            const existingTimer = imagePollingTimersRef.current.get(pollingKey);
+            if (existingTimer) window.clearTimeout(existingTimer);
+            const timer = window.setTimeout(() => {
+              imagePollingTimersRef.current.delete(pollingKey);
               void poll(data.message as Message, pollCount + 1);
             }, imagePollIntervalMs);
+            imagePollingTimersRef.current.set(pollingKey, timer);
             return;
           }
         } catch (error) {
           const messageText = getFriendlyErrorMessage(error) || "图片任务查询失败，请稍后点击继续查询。";
           setMessages((current) =>
             current.map((item) => {
-              if (item.id !== currentMessage.id) return item;
+              if (item.id !== currentMessage.id || hasCompletedImage(item)) return item;
               return {
                 ...item,
                 content: messageText,
@@ -674,9 +738,10 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
               };
             })
           );
+        } finally {
+          imagePollingTasksRef.current.delete(pollingKey);
+          setImageMessageChecking(currentMessage.id, false);
         }
-
-        imagePollingTasksRef.current.delete(pollingKey);
       };
 
       void poll(message, initialPollCount);
@@ -1651,8 +1716,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
               onInputChange={setInput}
               onSubmitMessage={submitMessage}
               onSendMessage={(text) => void sendMessage(text)}
-              onCheckImageStatus={(message) => startImageStatusPolling(message)}
+              onCheckImageStatus={(message) => startImageStatusPolling(message, 1, { manual: true })}
               onCheckVideoStatus={(message) => startVideoStatusPolling(message, 1, { manual: true })}
+              checkingImageMessageIds={checkingImageMessageIds}
               checkingVideoMessageIds={checkingVideoMessageIds}
               onToggleRecording={() => setIsRecording((current) => !current)}
             />
