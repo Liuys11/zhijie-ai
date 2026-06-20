@@ -36,7 +36,12 @@ export function buildImageParts({
   error,
   taskId,
   taskStatus,
-  provider
+  provider,
+  startedAt,
+  lastCheckedAt,
+  elapsedMs,
+  pollCount,
+  autoStopped
 }: {
   prompt: string;
   status: ImagePartStatus;
@@ -46,6 +51,11 @@ export function buildImageParts({
   taskId?: string;
   taskStatus?: string;
   provider?: string;
+  startedAt?: string;
+  lastCheckedAt?: string;
+  elapsedMs?: number;
+  pollCount?: number;
+  autoStopped?: boolean;
 }) {
   const content = status === "completed"
     ? `已根据你的描述生成教学图片：**${prompt}**`
@@ -67,7 +77,12 @@ export function buildImageParts({
       error,
       taskId,
       taskStatus,
-      provider
+      provider,
+      startedAt,
+      lastCheckedAt,
+      elapsedMs,
+      pollCount,
+      autoStopped
     }
   ];
 }

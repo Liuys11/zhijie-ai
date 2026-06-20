@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
     try {
       if (imageConfig.provider === "xfyun-hidream") {
         const task = await createXfyunHiDreamTask(parsedBody.prompt, imageConfig);
+        const startedAt = new Date().toISOString();
         const content = "图片正在排队生成，请稍候。";
         const parts = buildImageParts({
           prompt: parsedBody.prompt,
@@ -118,7 +119,9 @@ export async function POST(request: NextRequest) {
           error: content,
           taskId: task.taskId,
           taskStatus: "1",
-          provider: task.provider
+          provider: task.provider,
+          startedAt,
+          pollCount: 0
         });
         const assistantMessage = await saveMessage(auth.token, auth.user.id, conversation.id, "assistant", content, {
           parts,
@@ -128,7 +131,7 @@ export async function POST(request: NextRequest) {
             status: "waiting",
             taskStatus: "1",
             prompt: parsedBody.prompt,
-            startedAt: new Date().toISOString(),
+            startedAt,
             pollCount: 0
           }
         }, task.model);

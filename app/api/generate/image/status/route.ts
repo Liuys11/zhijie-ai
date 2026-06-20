@@ -43,6 +43,21 @@ function maskTaskId(taskId: string) {
   return `${taskId.slice(0, 4)}...${taskId.slice(-4)}`;
 }
 
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getImageTaskMetadata(metadata: Record<string, unknown>) {
+  return asRecord(metadata.imageTask) || {};
+}
+
+function getElapsedMs(startedAt: string, nowMs: number) {
+  const startedMs = Date.parse(startedAt);
+  return Number.isFinite(startedMs) ? Math.max(0, nowMs - startedMs) : 0;
+}
+
 function parseBody(rawBody: unknown): ParsedBody | { error: string } {
   if (typeof rawBody !== "object" || rawBody === null) return { error: "请求体格式不正确" };
 
@@ -87,6 +102,11 @@ export async function POST(request: NextRequest) {
     const message = await ensureMessageAccess(auth.token, auth.user.id, parsedBody.messageId);
     if (!message) return jsonError("图片任务消息不存在或无权访问", 404);
 
+    const imageTaskMetadata = getImageTaskMetadata(message.metadata || {});
+    const startedAt = asString(imageTaskMetadata.startedAt) || new Date().toISOString();
+    const lastCheckedAt = new Date().toISOString();
+    const elapsedMs = getElapsedMs(startedAt, Date.now());
+
     const imageConfig = getImageProviderConfig();
     if (!imageConfig || imageConfig.provider !== "xfyun-hidream") {
       return jsonError("当前图片服务不是讯飞 HiDream，无法查询该任务。", 400);
@@ -109,8 +129,9 @@ export async function POST(request: NextRequest) {
       provider: imageConfig.provider
     });
     if (!result.image) {
-      const timeoutHint = parsedBody.pollCount * imageConfig.pollIntervalMs >= imageConfig.timeoutMs
-        ? "讯飞图片任务处理时间较长，请点击继续查询。"
+      const taskCompletedWithoutImage = result.taskStatus === "3" || result.taskStatus === "4";
+      const timeoutHint = !taskCompletedWithoutImage && parsedBody.pollCount * imageConfig.pollIntervalMs >= imageConfig.timeoutMs
+        ? "讯飞图片任务处理时间较长，任务已保留，可稍后手动继续查询原任务。"
         : result.message;
       const parts = buildImageParts({
         prompt: parsedBody.prompt,
@@ -118,7 +139,11 @@ export async function POST(request: NextRequest) {
         error: timeoutHint,
         taskId: parsedBody.taskId,
         taskStatus: result.taskStatus,
-        provider: "xfyun-hidream"
+        provider: "xfyun-hidream",
+        startedAt,
+        lastCheckedAt,
+        elapsedMs,
+        pollCount: parsedBody.pollCount
       });
       await updateMessage(auth.token, parsedBody.messageId, timeoutHint, {
         parts,
@@ -128,8 +153,10 @@ export async function POST(request: NextRequest) {
           status: result.status,
           taskStatus: result.taskStatus,
           prompt: parsedBody.prompt,
+          startedAt,
           pollCount: parsedBody.pollCount,
-          lastCheckedAt: new Date().toISOString()
+          lastCheckedAt,
+          elapsedMs
         }
       }, imageConfig.provider);
 
@@ -155,7 +182,11 @@ export async function POST(request: NextRequest) {
       storagePath: storedImage.storagePath,
       taskId: parsedBody.taskId,
       taskStatus: result.taskStatus,
-      provider: "xfyun-hidream"
+      provider: "xfyun-hidream",
+      startedAt,
+      lastCheckedAt,
+      elapsedMs,
+      pollCount: parsedBody.pollCount
     });
     const content = `图片生成完成：${parsedBody.prompt}`;
     await updateMessage(auth.token, parsedBody.messageId, content, {
@@ -166,8 +197,11 @@ export async function POST(request: NextRequest) {
         status: "completed",
         taskStatus: result.taskStatus,
         prompt: parsedBody.prompt,
+        startedAt,
         storagePath: storedImage.storagePath,
         publicUrl: storedImage.publicUrl,
+        lastCheckedAt,
+        elapsedMs,
         completedAt: new Date().toISOString()
       }
     }, result.image.model);

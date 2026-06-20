@@ -66,6 +66,11 @@ export type MessagePart =
       taskId?: string;
       taskStatus?: string;
       provider?: string;
+      startedAt?: string;
+      lastCheckedAt?: string;
+      elapsedMs?: number;
+      pollCount?: number;
+      autoStopped?: boolean;
     }
   | {
       type: "video";

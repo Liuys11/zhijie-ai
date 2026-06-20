@@ -94,6 +94,7 @@ const defaultProjectStats: ProjectStats = {
 
 const imagePollIntervalMs = 3000;
 const imagePollMaxCount = 40;
+const imageAutoPollMaxMs = 10 * 60 * 1000;
 const videoPollIntervalMs = 5000;
 const videoAutoPollMaxMs = 10 * 60 * 1000;
 const enableVideoGeneration = process.env.NEXT_PUBLIC_ENABLE_VIDEO_GENERATION === "true";
@@ -105,7 +106,12 @@ function getImageTaskFromMessage(message: Message) {
   return {
     taskId: imagePart.taskId,
     prompt: imagePart.prompt,
-    taskStatus: imagePart.taskStatus
+    taskStatus: imagePart.taskStatus,
+    startedAt: imagePart.startedAt,
+    lastCheckedAt: imagePart.lastCheckedAt,
+    elapsedMs: imagePart.elapsedMs || 0,
+    pollCount: imagePart.pollCount || 0,
+    autoStopped: imagePart.autoStopped || false
   };
 }
 
@@ -133,6 +139,34 @@ function replaceMessage(current: Message[], nextMessage: Message) {
 
 function hasCompletedImage(message: Message) {
   return Boolean(message.parts?.some((part) => part.type === "image" && part.status === "completed" && part.url));
+}
+
+function getImageTaskElapsedMs(task: ReturnType<typeof getImageTaskFromMessage>) {
+  if (!task?.startedAt) return Number.POSITIVE_INFINITY;
+  const startedMs = Date.parse(task.startedAt);
+  if (!Number.isFinite(startedMs)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Date.now() - startedMs);
+}
+
+function shouldAutoPollImageTask(task: ReturnType<typeof getImageTaskFromMessage>) {
+  if (!task) return false;
+  if (task.autoStopped) return false;
+  if (task.taskStatus === "3" || task.taskStatus === "4") return false;
+  return getImageTaskElapsedMs(task) < imageAutoPollMaxMs;
+}
+
+function markImageAutoStopped(message: Message, autoStopped: boolean) {
+  return {
+    ...message,
+    parts: message.parts?.map((part) =>
+      part.type === "image"
+        ? {
+            ...part,
+            autoStopped
+          }
+        : part
+    )
+  };
 }
 
 function replaceMessageKeepingCompletedImage(current: Message[], nextMessage: Message) {
@@ -341,6 +375,16 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     }),
     [session.access_token]
   );
+
+  useEffect(() => {
+    const timers = imagePollingTimersRef.current;
+    const inFlightTasks = imagePollingTasksRef.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+      inFlightTasks.clear();
+    };
+  }, [activeProjectId]);
 
   const loadMessages = useCallback(async (project: Project) => {
     const response = await fetch(`/api/projects/${project.id}/messages`, {
@@ -669,6 +713,38 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         }
         return;
       }
+      if (!options.manual && !shouldAutoPollImageTask(task)) {
+        const elapsedMs = getImageTaskElapsedMs(task);
+        console.info("[image-auto-poll-stop]", {
+          messageId: message.id,
+          taskId: maskTaskId(task.taskId),
+          elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null,
+          taskStatus: task.taskStatus
+        });
+        if (task.taskStatus !== "3" && task.taskStatus !== "4") {
+          const messageText = `图片任务已保留，可稍后手动继续查询原任务。已等待 ${Number.isFinite(elapsedMs) ? formatElapsedTime(elapsedMs) : "较长时间"}`;
+          setMessages((current) =>
+            current.map((item) => {
+              if (item.id !== message.id || hasCompletedImage(item)) return item;
+              return {
+                ...item,
+                content: messageText,
+                parts: item.parts?.map((part) =>
+                  part.type === "image"
+                    ? {
+                        ...part,
+                        error: messageText,
+                        autoStopped: true,
+                        elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : part.elapsedMs
+                      }
+                    : part
+                )
+              };
+            })
+          );
+        }
+        return;
+      }
 
       const pollingKey = `${message.id}:${task.taskId}`;
 
@@ -706,9 +782,17 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           }
           if (!response.ok || !data.message) throw new Error(data.error || "图片任务查询失败");
 
-          setMessages((current) => replaceMessageKeepingCompletedImage(current, data.message as Message));
+          const responseMessage = options.manual && data.status !== "completed"
+            ? markImageAutoStopped(data.message as Message, true)
+            : data.message as Message;
+          setMessages((current) => replaceMessageKeepingCompletedImage(current, responseMessage));
 
-          if (data.status !== "completed" && pollCount < imagePollMaxCount) {
+          const nextTask = getImageTaskFromMessage(responseMessage);
+          const shouldContinue = !options.manual
+            && data.status !== "completed"
+            && pollCount < imagePollMaxCount
+            && shouldAutoPollImageTask(nextTask);
+          if (shouldContinue) {
             const existingTimer = imagePollingTimersRef.current.get(pollingKey);
             if (existingTimer) window.clearTimeout(existingTimer);
             const timer = window.setTimeout(() => {
