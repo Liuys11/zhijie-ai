@@ -37,9 +37,7 @@ type ChatPanelProps = {
   onSubmitMessage: (event: FormEvent) => void;
   onSendMessage: (text?: string) => void;
   onCheckImageStatus: (message: Message) => void;
-  onCheckVideoStatus: (message: Message) => void;
   checkingImageMessageIds: Set<string>;
-  checkingVideoMessageIds: Set<string>;
   onToggleRecording: () => void;
 };
 
@@ -65,9 +63,7 @@ export function ChatPanel({
   onSubmitMessage,
   onSendMessage,
   onCheckImageStatus,
-  onCheckVideoStatus,
   checkingImageMessageIds,
-  checkingVideoMessageIds,
   onToggleRecording
 }: ChatPanelProps) {
   return (
@@ -121,9 +117,7 @@ export function ChatPanel({
                   message={message}
                   onSendMessage={onSendMessage}
                   onCheckImageStatus={onCheckImageStatus}
-                  onCheckVideoStatus={onCheckVideoStatus}
                   checkingImageMessageIds={checkingImageMessageIds}
-                  checkingVideoMessageIds={checkingVideoMessageIds}
                 />
               </div>
             </div>

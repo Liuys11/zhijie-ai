@@ -13,9 +13,7 @@ type MessageRendererProps = {
   message: Message;
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
-  onCheckVideoStatus?: (message: Message) => void;
   checkingImageMessageIds?: Set<string>;
-  checkingVideoMessageIds?: Set<string>;
 };
 
 const markdownComponents: Components = {
@@ -31,7 +29,6 @@ const markdownComponents: Components = {
   }
 };
 
-const enableVideoGeneration = process.env.NEXT_PUBLIC_ENABLE_VIDEO_GENERATION === "true";
 const mermaidStartPattern =
   /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline|gitGraph|quadrantChart|xychart-beta)\b/i;
 
@@ -321,17 +318,13 @@ function MediaPlaceholder({
   part,
   onSendMessage,
   onCheckImageStatus,
-  onCheckVideoStatus,
   checkingImageMessageIds,
-  checkingVideoMessageIds
 }: {
   message: Message;
   part: MessagePart;
   onSendMessage?: (text: string) => void;
   onCheckImageStatus?: (message: Message) => void;
-  onCheckVideoStatus?: (message: Message) => void;
   checkingImageMessageIds?: Set<string>;
-  checkingVideoMessageIds?: Set<string>;
 }) {
   if (part.type === "image") {
     const isChecking = checkingImageMessageIds?.has(message.id) || false;
@@ -379,83 +372,12 @@ function MediaPlaceholder({
   }
 
   if (part.type === "video") {
-    const isChecking = checkingVideoMessageIds?.has(message.id) || false;
-    const videoTextPrompt = `请直接用文字讲解这个主题，并在开头用小括号备注“当前版本不支持生成视频”：${part.title}`;
-    const downloadVideo = () => {
-      if (!part.url) return;
-      const link = document.createElement("a");
-      link.href = part.url;
-      link.download = `${part.title || "zhijie-video"}.mp4`;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.click();
-    };
-
-    if (!enableVideoGeneration && !part.url) {
-      return (
-        <div className="generated-block">
-          <div className="generated-block-header">
-            <strong>{part.title}</strong>
-            <span>
-              <button type="button" onClick={() => onSendMessage?.(videoTextPrompt)}>
-                <RefreshCw size={14} /> 生成文字讲解
-              </button>
-            </span>
-          </div>
-          <p className="generated-note">（当前版本不支持生成视频）可以直接生成文字讲解，避免演示时长时间等待视频队列。</p>
-        </div>
-      );
-    }
-
     return (
       <div className="generated-block">
         <div className="generated-block-header">
-          <strong>{part.title}</strong>
-          <span>
-            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `重新生成教学视频：${part.title}` : videoTextPrompt)}>
-              <RefreshCw size={14} /> {enableVideoGeneration ? "重新生成" : "生成文字讲解"}
-            </button>
-            {enableVideoGeneration && part.status === "generating" && (
-              <button type="button" onClick={() => onCheckVideoStatus?.(message)} disabled={isChecking}>
-                <RefreshCw size={14} /> {isChecking ? "查询中..." : "继续查询"}
-              </button>
-            )}
-            <button type="button" onClick={() => onSendMessage?.(enableVideoGeneration ? `请按这个意见修改教学视频：${part.title}` : videoTextPrompt)}>
-              继续修改
-            </button>
-            {part.url && (
-              <button type="button" onClick={downloadVideo}>
-                <Download size={14} /> 下载
-              </button>
-            )}
-          </span>
+          <strong>{part.title || "教学视频"}</strong>
         </div>
-        {(part.duration || part.difficulty || part.style) && (
-          <p className="generated-note">
-            预计时长：{part.duration === "30s" ? "约30秒" : part.duration === "90s" ? "约1分30秒" : "约1分钟"}
-            {part.difficulty ? `；难度：${part.difficulty}` : ""}
-            {part.style ? `；风格：${part.style}` : ""}
-          </p>
-        )}
-        {enableVideoGeneration && (part.taskIdMasked || part.lastCheckedAt || part.providerStatusLabel || part.providerStatusDetail) && (
-          <p className="generated-note">
-            {part.taskIdMasked ? `任务：${part.taskIdMasked}` : ""}
-            {part.elapsedMs ? `；已等待：${Math.floor(part.elapsedMs / 60000)}分${String(Math.floor((part.elapsedMs % 60000) / 1000)).padStart(2, "0")}秒` : ""}
-            {part.lastCheckedAt ? `；最近查询：${part.lastCheckedAt}` : ""}
-            {part.providerStatusLabel ? `?${part.providerStatusLabel}` : ""}
-            {part.providerStatusDetail ? `?${part.providerStatusDetail}` : ""}
-          </p>
-        )}
-        {part.url ? (
-          <video className="generated-video" src={part.url} controls />
-        ) : (
-          <p className={part.status === "failed" ? "generated-error" : "generated-note"}>
-            {enableVideoGeneration
-              ? part.error || part.progressLabel || "微课视频任务结构已准备，视频生成服务尚未配置。"
-              : "视频生成服务排队较慢，当前演示版已暂停真实 MP4 生成。建议先生成微课脚本、分镜大纲和字幕稿用于展示。"}
-          </p>
-        )}
-        {part.script && <MarkdownPart content={part.script} />}
+        <p className="generated-note">（当前版本不支持生成视频）我可以直接生成文字讲解、微课脚本或分镜大纲用于展示。</p>
       </div>
     );
   }
@@ -471,7 +393,7 @@ function MediaPlaceholder({
   return null;
 }
 
-export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, onCheckVideoStatus, checkingImageMessageIds, checkingVideoMessageIds }: MessageRendererProps) {
+export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, checkingImageMessageIds }: MessageRendererProps) {
   const parts = message.parts?.length ? message.parts : partsFromContent(message.content);
 
   return (
@@ -493,9 +415,7 @@ export function MessageRenderer({ message, onSendMessage, onCheckImageStatus, on
             part={part}
             onSendMessage={onSendMessage}
             onCheckImageStatus={onCheckImageStatus}
-            onCheckVideoStatus={onCheckVideoStatus}
             checkingImageMessageIds={checkingImageMessageIds}
-            checkingVideoMessageIds={checkingVideoMessageIds}
           />
         );
       })}

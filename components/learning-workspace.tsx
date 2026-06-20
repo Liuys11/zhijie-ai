@@ -66,21 +66,6 @@ type ApiImageStatusResponse = {
   error?: string;
 };
 
-type ApiVideoGenerationResponse = {
-  conversationId?: string;
-  message?: Message;
-  status?: "processing" | "completed" | "failed";
-  taskId?: string;
-  pollIntervalMs?: number;
-  error?: string;
-};
-
-type ApiVideoStatusResponse = {
-  message?: Message;
-  status?: "created" | "processing" | "completed" | "failed";
-  taskStatus?: string;
-  error?: string;
-};
 
 const allowedAvatarTypes = ["image/jpeg", "image/png", "image/webp"];
 const maxAvatarSize = 5 * 1024 * 1024;
@@ -95,9 +80,6 @@ const defaultProjectStats: ProjectStats = {
 const imagePollIntervalMs = 3000;
 const imagePollMaxCount = 40;
 const imageAutoPollMaxMs = 10 * 60 * 1000;
-const videoPollIntervalMs = 5000;
-const videoAutoPollMaxMs = 10 * 60 * 1000;
-const enableVideoGeneration = process.env.NEXT_PUBLIC_ENABLE_VIDEO_GENERATION === "true";
 
 function getImageTaskFromMessage(message: Message) {
   const imagePart = message.parts?.find((part) => part.type === "image" && part.taskId && part.status === "generating");
@@ -115,27 +97,6 @@ function getImageTaskFromMessage(message: Message) {
   };
 }
 
-function getVideoTaskFromMessage(message: Message) {
-  if (!enableVideoGeneration) return null;
-
-  const videoPart = message.parts?.find((part) => part.type === "video" && part.taskId && (part.status === "generating" || part.status === "queued"));
-  if (!videoPart || videoPart.type !== "video" || !videoPart.taskId) return null;
-
-  return {
-    taskId: videoPart.taskId,
-    topic: videoPart.title,
-    duration: videoPart.duration || "60s",
-    difficulty: videoPart.difficulty || "基础",
-    style: videoPart.style || "知识讲解",
-    taskStatus: videoPart.taskStatus,
-    startedAt: videoPart.startedAt,
-    elapsedMs: videoPart.elapsedMs || 0
-  };
-}
-
-function replaceMessage(current: Message[], nextMessage: Message) {
-  return current.map((message) => (message.id === nextMessage.id ? nextMessage : message));
-}
 
 function hasCompletedImage(message: Message) {
   return Boolean(message.parts?.some((part) => part.type === "image" && part.status === "completed" && part.url));
@@ -238,33 +199,6 @@ function cleanImagePrompt(message: string) {
     .trim() || message.trim();
 }
 
-function cleanVideoTopic(message: string) {
-  return message
-    .replace(/^重新生成教学视频[:：]?/, "")
-    .replace(/^生成一个\s*(30秒|1分钟|一分钟|1分30秒|一分半)?\s*教学视频[:：]?/, "")
-    .replace(/^请按这个意见修改教学视频[:：]?/, "")
-    .replace(/^(生成|做|创建|制作)(一个|一段)?(约)?(30秒|1分钟|一分钟|1分30秒|一分半)?(的)?(视频|短视频|微课|教学视频)[，,：:]?/, "")
-    .trim() || message.trim();
-}
-
-function inferVideoDuration(message: string): "30s" | "60s" | "90s" {
-  if (/90|1\.5|1分30|一分半|1 分 30/.test(message)) return "90s";
-  if (/30|半分钟/.test(message)) return "30s";
-  return "60s";
-}
-
-function inferVideoDifficulty(message: string): "入门" | "基础" | "进阶" {
-  if (/入门|初学|零基础/.test(message)) return "入门";
-  if (/进阶|提高|深入/.test(message)) return "进阶";
-  return "基础";
-}
-
-function inferVideoStyle(message: string): "知识讲解" | "考前复习" | "概念科普" | "案例分析" {
-  if (/考前|复习|冲刺/.test(message)) return "考前复习";
-  if (/科普|通俗/.test(message)) return "概念科普";
-  if (/案例|例子|应用/.test(message)) return "案例分析";
-  return "知识讲解";
-}
 
 function profileFromEmail(email?: string): UserProfile {
   return {
@@ -348,7 +282,6 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const [uploadingResource, setUploadingResource] = useState(false);
   const [deletingResourceId, setDeletingResourceId] = useState("");
   const [checkingImageMessageIds, setCheckingImageMessageIds] = useState<Set<string>>(() => new Set());
-  const [checkingVideoMessageIds, setCheckingVideoMessageIds] = useState<Set<string>>(() => new Set());
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -360,9 +293,6 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imagePollingTasksRef = useRef<Set<string>>(new Set());
   const imagePollingTimersRef = useRef<Map<string, number>>(new Map());
-  const videoPollingTasksRef = useRef<Set<string>>(new Set());
-  const videoInFlightTasksRef = useRef<Set<string>>(new Set());
-  const videoPollingTimersRef = useRef<Map<string, number>>(new Map());
 
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) || projects[0],
@@ -539,19 +469,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     }
   }, [messages, isLoading]);
 
-  useEffect(() => {
-    const videoPollingTimers = videoPollingTimersRef.current;
-    const videoPollingTasks = videoPollingTasksRef.current;
-    const videoInFlightTasks = videoInFlightTasksRef.current;
 
-    return () => {
-      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-      videoPollingTimers.forEach((timer) => window.clearTimeout(timer));
-      videoPollingTimers.clear();
-      videoPollingTasks.clear();
-      videoInFlightTasks.clear();
-    };
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -652,18 +570,6 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     return message || "模型服务暂时不可用，请稍后再试。";
   };
 
-  const setVideoMessageChecking = (messageId: string, checking: boolean) => {
-    setCheckingVideoMessageIds((current) => {
-      const next = new Set(current);
-      if (checking) {
-        next.add(messageId);
-      } else {
-        next.delete(messageId);
-      }
-      return next;
-    });
-  };
-
   const setImageMessageChecking = (messageId: string, checking: boolean) => {
     setCheckingImageMessageIds((current) => {
       const next = new Set(current);
@@ -713,6 +619,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         }
         return;
       }
+
       if (!options.manual && !shouldAutoPollImageTask(task)) {
         const elapsedMs = getImageTaskElapsedMs(task);
         console.info("[image-auto-poll-stop]", {
@@ -782,16 +689,18 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           }
           if (!response.ok || !data.message) throw new Error(data.error || "图片任务查询失败");
 
-          const responseMessage = options.manual && data.status !== "completed"
-            ? markImageAutoStopped(data.message as Message, true)
-            : data.message as Message;
+          const responseMessage =
+            options.manual && data.status !== "completed"
+              ? markImageAutoStopped(data.message as Message, true)
+              : (data.message as Message);
           setMessages((current) => replaceMessageKeepingCompletedImage(current, responseMessage));
 
           const nextTask = getImageTaskFromMessage(responseMessage);
-          const shouldContinue = !options.manual
-            && data.status !== "completed"
-            && pollCount < imagePollMaxCount
-            && shouldAutoPollImageTask(nextTask);
+          const shouldContinue =
+            !options.manual &&
+            data.status !== "completed" &&
+            pollCount < imagePollMaxCount &&
+            shouldAutoPollImageTask(nextTask);
           if (shouldContinue) {
             const existingTimer = imagePollingTimersRef.current.get(pollingKey);
             if (existingTimer) window.clearTimeout(existingTimer);
@@ -803,7 +712,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
             return;
           }
         } catch (error) {
-          const messageText = getFriendlyErrorMessage(error) || "图片任务查询失败，请稍后点击继续查询。";
+          const messageText = getFriendlyErrorMessage(error) || "图片任务查询失败，请稍后重试。";
           setMessages((current) =>
             current.map((item) => {
               if (item.id !== currentMessage.id || hasCompletedImage(item)) return item;
@@ -833,206 +742,6 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     [activeProject, authHeaders, onSignOut]
   );
 
-  const startVideoStatusPolling = useCallback(
-    (message: Message, initialPollCount = 1, options: { manual?: boolean } = {}) => {
-      if (!activeProject) return;
-
-      const videoPart = message.parts?.find((part) => part.type === "video");
-      const task = getVideoTaskFromMessage(message);
-      console.log("[video-continue-query]", {
-        hasTaskId: Boolean(task?.taskId),
-        taskId: maskTaskId(task?.taskId),
-        currentStatus: videoPart?.type === "video" ? videoPart.status : undefined,
-        taskStatus: videoPart?.type === "video" ? videoPart.taskStatus : undefined,
-        messageId: message.id
-      });
-
-      if (!task) {
-        const messageText = "未找到该视频任务编号，无法继续查询。";
-        setMessages((current) =>
-          current.map((item) => {
-            if (item.id !== message.id) return item;
-            return {
-              ...item,
-              content: messageText,
-              parts: item.parts?.map((part) =>
-                part.type === "video"
-                  ? {
-                      ...part,
-                      status: "failed",
-                      error: messageText,
-                      progressLabel: messageText
-                    }
-                  : part
-              )
-            };
-          })
-        );
-        return;
-      }
-
-      const pollingKey = message.id;
-      const pendingTimer = videoPollingTimersRef.current.get(pollingKey);
-      if (pendingTimer && options.manual) {
-        window.clearTimeout(pendingTimer);
-        videoPollingTimersRef.current.delete(pollingKey);
-      }
-
-      if (videoInFlightTasksRef.current.has(pollingKey)) {
-        const messageText = "视频状态正在查询中，请稍候。";
-        setMessages((current) =>
-          current.map((item) => {
-            if (item.id !== message.id) return item;
-            return {
-              ...item,
-              content: messageText,
-              parts: item.parts?.map((part) =>
-                part.type === "video"
-                  ? {
-                      ...part,
-                      progressLabel: messageText
-                    }
-                  : part
-              )
-            };
-          })
-        );
-        return;
-      }
-
-      if (videoPollingTasksRef.current.has(pollingKey) && !options.manual) return;
-      videoPollingTasksRef.current.add(pollingKey);
-
-      const poll = async (currentMessage: Message, pollCount: number) => {
-        const currentTask = getVideoTaskFromMessage(currentMessage);
-        if (!currentTask) {
-          videoPollingTasksRef.current.delete(pollingKey);
-          setVideoMessageChecking(pollingKey, false);
-          return;
-        }
-
-        videoInFlightTasksRef.current.add(pollingKey);
-        setVideoMessageChecking(pollingKey, true);
-        const startedTime = currentTask.startedAt ? Date.parse(currentTask.startedAt) : 0;
-        const currentElapsedMs = Number.isFinite(startedTime) && startedTime > 0
-          ? Math.max(0, Date.now() - startedTime)
-          : currentTask.elapsedMs;
-        const queryingLabel = `正在查询视频状态，已等待 ${formatElapsedTime(currentElapsedMs)}...`;
-        setMessages((current) =>
-          current.map((item) => {
-            if (item.id !== currentMessage.id) return item;
-            return {
-              ...item,
-              content: queryingLabel,
-              parts: item.parts?.map((part) =>
-                part.type === "video"
-                  ? {
-                      ...part,
-                      progressLabel: queryingLabel,
-                      elapsedMs: currentElapsedMs
-                    }
-                  : part
-              )
-            };
-          })
-        );
-
-        let nextMessage: Message | null = null;
-        let shouldContinue = false;
-
-        try {
-          const response = await fetch("/api/video/status", {
-            method: "POST",
-            headers: {
-              ...authHeaders,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              projectId: activeProject.id,
-              messageId: currentMessage.id,
-              taskId: currentTask.taskId,
-              topic: currentTask.topic,
-              duration: currentTask.duration,
-              difficulty: currentTask.difficulty,
-              style: currentTask.style,
-              pollCount
-            })
-          });
-          const data = (await response.json()) as ApiVideoStatusResponse;
-          if (response.status === 401) {
-            onSignOut();
-            return;
-          }
-          if (!response.ok || !data.message) throw new Error(data.error || "视频任务查询失败");
-
-          nextMessage = data.message as Message;
-          setMessages((current) => replaceMessage(current, nextMessage as Message));
-
-          const nextTask = getVideoTaskFromMessage(nextMessage);
-          const nextElapsedMs = nextTask?.elapsedMs ?? currentElapsedMs;
-          shouldContinue = data.status !== "completed" && nextElapsedMs < videoAutoPollMaxMs;
-          if (!shouldContinue && data.status !== "completed") {
-            const manualContinueLabel = `讯飞仍在处理该视频任务。任务编号已保留，可稍后继续查询。已等待 ${formatElapsedTime(nextElapsedMs)}`;
-            setMessages((current) =>
-              current.map((item) => {
-                if (item.id !== currentMessage.id) return item;
-                return {
-                  ...item,
-                  content: manualContinueLabel,
-                  parts: item.parts?.map((part) =>
-                    part.type === "video"
-                      ? {
-                          ...part,
-                          progressLabel: manualContinueLabel
-                        }
-                      : part
-                  )
-                };
-              })
-            );
-          }
-        } catch (error) {
-          const messageText = getFriendlyErrorMessage(error) || "视频状态查询失败，请稍后重试。";
-          setMessages((current) =>
-            current.map((item) => {
-              if (item.id !== currentMessage.id) return item;
-              return {
-                ...item,
-                content: messageText,
-                parts: item.parts?.map((part) =>
-                  part.type === "video"
-                    ? {
-                        ...part,
-                        status: "generating",
-                        progressLabel: messageText,
-                        error: messageText
-                      }
-                    : part
-                )
-              };
-            })
-          );
-        } finally {
-          videoInFlightTasksRef.current.delete(pollingKey);
-          setVideoMessageChecking(pollingKey, false);
-        }
-
-        if (shouldContinue && nextMessage) {
-          const timer = window.setTimeout(() => {
-            videoPollingTimersRef.current.delete(pollingKey);
-            void poll(nextMessage as Message, pollCount + 1);
-          }, videoPollIntervalMs);
-          videoPollingTimersRef.current.set(pollingKey, timer);
-          return;
-        }
-
-        videoPollingTasksRef.current.delete(pollingKey);
-      };
-
-      void poll(message, initialPollCount);
-    },
-    [activeProject, authHeaders, onSignOut]
-  );
 
   useEffect(() => {
     if (!activeProject) return;
@@ -1041,11 +750,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       if (getImageTaskFromMessage(message)) {
         startImageStatusPolling(message);
       }
-      if (getVideoTaskFromMessage(message)) {
-        startVideoStatusPolling(message);
-      }
     });
-  }, [activeProject, messages, startImageStatusPolling, startVideoStatusPolling]);
+  }, [activeProject, messages, startImageStatusPolling]);
 
   const sendMessage = async (text?: string) => {
     const messageText = (text ?? input).trim();
@@ -1069,43 +775,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     const assistantMessageId = crypto.randomUUID();
 
     try {
-      if (enableVideoGeneration && isVideoGenerationRequest(messageText)) {
-        const response = await fetch("/api/video/generate", {
-          method: "POST",
-          headers: {
-            ...authHeaders,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            topic: cleanVideoTopic(messageText),
-            duration: inferVideoDuration(messageText),
-            difficulty: inferVideoDifficulty(messageText),
-            style: inferVideoStyle(messageText),
-            projectId: activeProject.id,
-            conversationId: activeProject.conversationId,
-            projectName: activeProject.name
-          })
-        });
-        const data = (await response.json()) as ApiVideoGenerationResponse;
-        if (response.status === 401) {
-          onSignOut();
-          return;
-        }
-        if (!response.ok || !data.message) throw new Error(data.error || "视频生成失败");
 
-        if (data.conversationId) {
-          setProjects((current) =>
-            current.map((project) => (project.id === activeProject.id ? { ...project, conversationId: data.conversationId } : project))
-          );
-        }
-
-        const videoMessage = data.message as Message;
-        setMessages((current) => [...current, videoMessage]);
-        if (data.status === "processing") {
-          startVideoStatusPolling(videoMessage);
-        }
-        return;
-      }
 
       if (isImageGenerationRequest(messageText)) {
         const response = await fetch("/api/generate/image", {
@@ -1143,7 +813,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       }
 
       const chatMessageText =
-        !enableVideoGeneration && isVideoGenerationRequest(messageText)
+        isVideoGenerationRequest(messageText)
           ? `用户请求生成视频：${messageText}\n\n当前版本不支持生成视频。请不要创建视频任务，不要输出分镜脚本或制作流程，直接用文字讲解用户真正想学习的主题，并在回答开头用小括号备注“当前版本不支持生成视频”。`
           : messageText;
 
@@ -1801,9 +1471,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
               onSubmitMessage={submitMessage}
               onSendMessage={(text) => void sendMessage(text)}
               onCheckImageStatus={(message) => startImageStatusPolling(message, 1, { manual: true })}
-              onCheckVideoStatus={(message) => startVideoStatusPolling(message, 1, { manual: true })}
               checkingImageMessageIds={checkingImageMessageIds}
-              checkingVideoMessageIds={checkingVideoMessageIds}
               onToggleRecording={() => setIsRecording((current) => !current)}
             />
             {insightPanel}

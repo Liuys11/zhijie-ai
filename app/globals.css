@@ -1185,8 +1185,7 @@ textarea:focus-visible {
   color: #b33b42;
 }
 
-.generated-image,
-.generated-video {
+.generated-image {
   width: 100%;
   display: block;
   background: #eef2f7;
