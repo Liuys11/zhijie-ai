@@ -1,8 +1,15 @@
-export function nowLabel() {
+export const messageTimeZone = "Asia/Shanghai";
+
+export function formatMessageTime(value: Date | string | number = new Date()) {
   return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: messageTimeZone,
     hour: "2-digit",
     minute: "2-digit"
-  }).format(new Date());
+  }).format(new Date(value));
+}
+
+export function nowLabel() {
+  return formatMessageTime(new Date());
 }
 
 export function formatFileSize(bytes: number) {

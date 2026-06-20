@@ -39,6 +39,7 @@ export type Message = {
   content: string;
   parts?: MessagePart[];
   time: string;
+  createdAt?: string;
 };
 
 export type MessagePart =

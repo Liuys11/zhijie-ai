@@ -8,7 +8,7 @@ import { NewProjectModal } from "./learning-workspace/new-project-modal";
 import { ProfileModal } from "./learning-workspace/profile-modal";
 import { KnowledgeMap, ProjectOverview, ResourceLibrary } from "./learning-workspace/project-modules";
 import type { Assessment, KnowledgeEdge, KnowledgeNode, LearningStep, Message, Project, ProjectStats, Resource, UserProfile, WorkspaceSection } from "./learning-workspace/types";
-import { nowLabel } from "./learning-workspace/utils";
+import { formatMessageTime, nowLabel } from "./learning-workspace/utils";
 import { WorkspaceHeader } from "./learning-workspace/workspace-header";
 import { WorkspaceSidebar } from "./learning-workspace/workspace-sidebar";
 import { deleteAvatarFile, deleteProjectFile, getAvatarPublicUrl, uploadAvatarFile, uploadProjectFile, type AuthSession } from "@/lib/supabase-browser";
@@ -330,7 +330,14 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     const conversationId = data.conversationId;
     setProjects((current) => current.map((item) => (item.id === project.id ? { ...item, conversationId } : item)));
     shouldStickToBottomRef.current = true;
-    setMessages(data.messages?.length ? data.messages : initialMessages);
+    setMessages(
+      data.messages?.length
+        ? data.messages.map((message) => ({
+            ...message,
+            time: message.createdAt ? formatMessageTime(message.createdAt) : message.time
+          }))
+        : initialMessages
+    );
   }, [authHeaders, onSignOut]);
 
   const loadProjectDetails = useCallback(async (project: Project) => {
@@ -654,6 +661,13 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       }
 
       const pollingKey = `${message.id}:${task.taskId}`;
+      const pendingTimer = imagePollingTimersRef.current.get(pollingKey);
+      if (pendingTimer) {
+        if (!options.manual) return;
+        window.clearTimeout(pendingTimer);
+        imagePollingTimersRef.current.delete(pollingKey);
+      }
+      if (!options.manual && imagePollingTasksRef.current.has(pollingKey)) return;
 
       const poll = async (currentMessage: Message, pollCount: number) => {
         const currentTask = getImageTaskFromMessage(currentMessage);
@@ -699,6 +713,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
           const shouldContinue =
             !options.manual &&
             data.status !== "completed" &&
+            data.status !== "failed" &&
             pollCount < imagePollMaxCount &&
             shouldAutoPollImageTask(nextTask);
           if (shouldContinue) {
@@ -737,7 +752,8 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
         }
       };
 
-      void poll(message, initialPollCount);
+      const nextPollCount = options.manual ? Math.max(1, task.pollCount + 1) : Math.max(initialPollCount, task.pollCount + 1, 1);
+      void poll(message, nextPollCount);
     },
     [activeProject, authHeaders, onSignOut]
   );

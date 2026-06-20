@@ -29,6 +29,14 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
+function formatMessageTime(value: string | Date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 function asString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -94,6 +102,7 @@ export async function POST(request: NextRequest) {
       const parts = buildImageParts({ prompt: parsedBody.prompt, status: "failed", error });
       const assistantMessage = await saveMessage(auth.token, auth.user.id, conversation.id, "assistant", error, { parts }, "image-unconfigured");
 
+      const createdAt = new Date().toISOString();
       return NextResponse.json({
         ok: true,
         conversationId: conversation.id,
@@ -102,7 +111,8 @@ export async function POST(request: NextRequest) {
           role: "assistant",
           content: error,
           parts,
-          time: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date())
+          createdAt,
+          time: formatMessageTime(createdAt)
         }
       });
     }
@@ -136,6 +146,7 @@ export async function POST(request: NextRequest) {
           }
         }, task.model);
 
+        const createdAt = new Date().toISOString();
         return NextResponse.json({
           ok: true,
           conversationId: conversation.id,
@@ -146,7 +157,8 @@ export async function POST(request: NextRequest) {
             role: "assistant",
             content,
             parts,
-            time: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date())
+            createdAt,
+            time: formatMessageTime(createdAt)
           }
         });
       }
@@ -176,6 +188,7 @@ export async function POST(request: NextRequest) {
         generatedImage.model
       );
 
+      const createdAt = new Date().toISOString();
       return NextResponse.json({
         ok: true,
         conversationId: conversation.id,
@@ -185,7 +198,8 @@ export async function POST(request: NextRequest) {
           role: "assistant",
           content,
           parts,
-          time: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date())
+          createdAt,
+          time: formatMessageTime(createdAt)
         }
       });
     } finally {

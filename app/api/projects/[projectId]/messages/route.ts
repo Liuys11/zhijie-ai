@@ -22,6 +22,14 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
+function formatMessageTime(value: string | Date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 async function ensureProjectAccess(token: string, projectId: string) {
   const projects = await supabaseRest<DbProject[]>(token, `projects?select=id&id=eq.${projectId}&limit=1`);
   return projects[0] || null;
@@ -74,10 +82,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pro
           role: message.role,
           content: message.content,
           parts: Array.isArray(message.metadata?.parts) ? message.metadata.parts : undefined,
-          time: new Intl.DateTimeFormat("zh-CN", {
-            hour: "2-digit",
-            minute: "2-digit"
-          }).format(new Date(message.created_at))
+          createdAt: message.created_at,
+          time: formatMessageTime(message.created_at)
         }))
     });
   } catch (error) {

@@ -30,6 +30,14 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
+function formatMessageTime(value: string | Date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 function asString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -161,6 +169,7 @@ export async function POST(request: NextRequest) {
         }
       }, imageConfig.provider);
 
+      const createdAt = new Date().toISOString();
       return NextResponse.json({
         ok: true,
         status: result.status,
@@ -170,7 +179,8 @@ export async function POST(request: NextRequest) {
           role: "assistant",
           content: timeoutHint,
           parts,
-          time: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date())
+          createdAt,
+          time: formatMessageTime(createdAt)
         }
       });
     }
@@ -220,6 +230,7 @@ export async function POST(request: NextRequest) {
       result.image.model
     );
 
+    const createdAt = new Date().toISOString();
     return NextResponse.json({
       ok: true,
       status: "completed",
@@ -229,7 +240,8 @@ export async function POST(request: NextRequest) {
         role: "assistant",
         content,
         parts,
-        time: new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date())
+        createdAt,
+        time: formatMessageTime(createdAt)
       }
     });
   } catch (error) {
