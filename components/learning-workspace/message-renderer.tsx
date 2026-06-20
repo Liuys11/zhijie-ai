@@ -354,6 +354,11 @@ function MediaPlaceholder({
             <button type="button" onClick={() => onSendMessage?.(`请在这张图片描述基础上继续修改：${part.prompt}`)}>
               继续修改
             </button>
+            {part.status === "failed" && (
+              <button type="button" onClick={() => onSendMessage?.(`生成矢量版教学图：${part.prompt}`)}>
+                矢量版
+              </button>
+            )}
             <button type="button" onClick={downloadImage} disabled={!part.url}>
               <Download size={14} /> 下载
             </button>

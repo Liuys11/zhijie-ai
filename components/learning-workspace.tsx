@@ -187,6 +187,10 @@ function isImageGenerationRequest(message: string) {
   return /(生成|画|绘制|做|创建).*(图片|插图|配图|封面|场景图|概念图|示意图|海报)|重新生成图片|继续修改.*图片/.test(message);
 }
 
+function isDiagramLikeImageRequest(message: string) {
+  return /(矢量版|结构图|思维导图|流程图|知识图谱|知识结构|学习路线|路线图|框图|关系图|电路图|示意图|概念图|原理图|架构图|拓扑图)/.test(message);
+}
+
 function isVideoGenerationRequest(message: string) {
   return /(生成|做|创建|制作).*(视频|短视频|微课|教学视频)|视频讲解|做成教学视频|重新生成教学视频|修改教学视频/.test(message);
 }
@@ -793,7 +797,7 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
     try {
 
 
-      if (isImageGenerationRequest(messageText)) {
+      if (isImageGenerationRequest(messageText) && !isDiagramLikeImageRequest(messageText)) {
         const response = await fetch("/api/generate/image", {
           method: "POST",
           headers: {
@@ -829,7 +833,9 @@ export function LearningWorkspace({ session, onSignOut }: LearningWorkspaceProps
       }
 
       const chatMessageText =
-        isVideoGenerationRequest(messageText)
+        isDiagramLikeImageRequest(messageText)
+          ? `用户想生成可视化图形：${messageText}\n\n请优先输出一个可渲染的 Mermaid 图形。Mermaid fenced block 内只能包含 Mermaid 代码，不要混入解释文字；中文节点标签请用引号包裹。图形后用简短文字说明如何阅读。`
+          : isVideoGenerationRequest(messageText)
           ? `用户请求生成视频：${messageText}\n\n当前版本不支持生成视频。请不要创建视频任务，不要输出分镜脚本或制作流程，直接用文字讲解用户真正想学习的主题，并在回答开头用小括号备注“当前版本不支持生成视频”。`
           : messageText;
 
